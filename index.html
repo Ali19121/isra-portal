@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -380,7 +381,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-teal" id="importWordBtn">📄 Import from Word (.docx)</button>
           <button class="btn btn-g" id="toggleAddBtn">＋ Add Manually</button>
-          <button class="btn btn-o btn-sm" id="syncSheetBtn">🔄 Sync from Sheet</button>
           <button class="btn btn-o btn-sm" id="importJsonBtn">📂 Import JSON</button>
         </div>
       </div>
@@ -508,11 +508,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
             <input id="adminSecretInput" type="password" placeholder="ISRA-ADMIN-XXXXXXXX"/>
             <span class="pass-eye" id="toggleSecretKey">👁</span>
           </div></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
-          <button class="btn btn-n" id="saveUrlSettBtn">Save URL & Key</button>
-          <button class="btn btn-o" id="testConnBtn">🔌 Test Connection</button>
-        </div>
-        <div id="connStatus" style="margin-top:10px;font-size:13px;display:none"></div>
+        <button class="btn btn-n" id="saveUrlSettBtn">Save URL & Key</button>
       </div>
       <div class="card">
         <div class="ct">Admin Password</div>
@@ -846,54 +842,21 @@ function pw(){
 // ── QUESTIONS ─────────────────────────────────────
 function db(){ return _qCache; }
 async function loadQuestions(cat){
-  if(!gurl()){ return _qCache[cat]||[]; }
-  showLoad('Loading questions...');
-  try{
-    const res=await apiGet({action:'getQuestions',cat});
-    hideLoad();
-    if(res&&Array.isArray(res.questions)){
-      _qCache[cat]=res.questions;
-      return res.questions;
-    }
-  }catch(e){ hideLoad(); console.error('loadQuestions',e); }
-  return _qCache[cat]||[];
-}
-// Force reload — bypass cache completely
-async function reloadAllQuestions(){
-  _qCache={};
-  if(!gurl()) return;
-  showLoad('Syncing all questions from Google Sheet...');
-  for(const cat of Object.keys(CATS)){
-    try{
-      const res=await apiGet({action:'getQuestions',cat});
-      if(res&&Array.isArray(res.questions)) _qCache[cat]=res.questions;
-    }catch(e){}
-  }
+  if(_qCache[cat]&&_qCache[cat].length) return _qCache[cat];
+  if(!gurl()) return [];
+  showLoad('Loading questions from server...');
+  const res=await apiGet({action:'getQuestions',cat});
   hideLoad();
+  if(res&&res.questions){ _qCache[cat]=res.questions; return res.questions; }
+  return [];
 }
 async function saveQuestionsRemote(cat,questions){
-  if(!gurl()){ toast('No Apps Script URL — check Settings','er'); return false; }
-  if(!getASK()){ toast('No Admin Secret Key — check Settings','er'); return false; }
-  showLoad('Saving to Google Sheet...');
-  try{
-    const res=await apiPost({action:'saveQuestions',secret:getASK(),cat,questions});
-    hideLoad();
-    if(res&&res.saved){
-      _qCache[cat]=questions;
-      toast(questions.length+' questions saved to Google Sheet ✓','ok');
-      return true;
-    } else {
-      const msg=(res&&res.error)||'Unknown error';
-      toast('Save failed: '+msg,'er');
-      console.error('saveQuestionsRemote failed',res);
-      return false;
-    }
-  }catch(e){
-    hideLoad();
-    toast('Save error: '+e.message,'er');
-    console.error('saveQuestionsRemote exception',e);
-    return false;
-  }
+  if(!gurl()){ toast('Apps Script URL not set','er'); return; }
+  showLoad('Saving questions to server...');
+  const res=await apiPost({action:'saveQuestions',secret:getASK(),cat,questions});
+  hideLoad();
+  if(res&&res.saved){ _qCache[cat]=questions; toast('Questions saved to Google Sheet ✓','ok'); }
+  else toast('Save failed. Check Admin Secret Key in Settings.','er');
 }
 
 // ── HISTORY ───────────────────────────────────────
@@ -993,18 +956,22 @@ async function saveAdminPw(){
 
 // ════════════ ADMIN INIT ════════════
 async function initAdmin(){
-  showLoad('Connecting to Google Sheet...');
+  showLoad('Loading settings...');
   await loadSettings();
   hideLoad();
-  renderPwFields();
-  const d=document.getElementById('durInput');if(d) d.value=dur();
-  const ac=document.getElementById('aq_cat');if(ac) ac.value=curCat;
-  const ic=document.getElementById('imp_cat');if(ic) ic.value=curCat;
-  const aiEl=document.getElementById('aiKeyInput');if(aiEl) aiEl.value=getAI();
-  const askEl=document.getElementById('adminSecretInput');if(askEl) askEl.value=getASK();
-  const urlEl=document.getElementById('urlSettInput');if(urlEl) urlEl.value=gurl();
-  // Show dashboard with live data
   openTab('dash');
+  renderPwFields();
+  const d=document.getElementById('durInput');
+  if(d) d.value=dur();
+  const ac=document.getElementById('aq_cat');
+  if(ac) ac.value=curCat;
+  const ic=document.getElementById('imp_cat');
+  if(ic) ic.value=curCat;
+  const aiKey=getAI();
+  const aiEl=document.getElementById('aiKeyInput');
+  if(aiEl&&aiKey) aiEl.value=aiKey;
+  const askEl=document.getElementById('adminSecretInput');
+  if(askEl) askEl.value=getASK();
 }
 
 function openTab(id){
@@ -1018,7 +985,7 @@ function openTab(id){
   const tbe=document.getElementById('tab_'+id);
   if(tpe) tpe.classList.add('on');
   if(tbe) tbe.classList.add('on');
-  if(id==='qbank'){renderCatFilters().then(()=>renderQList());}
+  if(id==='qbank'){renderCatFilters();renderQList();}
   if(id==='dash'){renderDash();}
   if(id==='hist'){renderHistCatFilters();renderHist();}
   if(id==='lan'){renderChecklist();}
@@ -1045,10 +1012,8 @@ function renderChecklist(){
 }
 
 // ════════════ DASHBOARD ════════════
-async function renderDash(){
-  // Always reload fresh from server
-  if(gurl()) await reloadAllQuestions();
-  const d=_qCache;let tot=0,mcq=0,des=0;
+function renderDash(){
+  const d=db();let tot=0,mcq=0,des=0;
   Object.values(d).forEach(a=>{if(!Array.isArray(a))return;tot+=a.length;a.forEach(q=>q.type==='mcq'?mcq++:des++);});
   const st=document.getElementById('st_tot');if(st)st.textContent=tot;
   const sm=document.getElementById('st_mcq');if(sm)sm.textContent=mcq;
@@ -1070,10 +1035,8 @@ async function renderDash(){
 }
 
 // ════════════ CAT FILTERS ════════════
-async function renderCatFilters(){
+function renderCatFilters(){
   const row=document.getElementById('cfrow');if(!row)return;row.innerHTML='';
-  // Show live counts from server
-  if(gurl()) await reloadAllQuestions();
   Object.entries(CATS).forEach(([k,c])=>{
     const cnt=(_qCache[k]||[]).length;
     const btn=document.createElement('button');
@@ -1085,14 +1048,9 @@ async function renderCatFilters(){
 }
 
 // ════════════ QUESTION LIST ════════════
-async function renderQList(){
-  if(gurl()){ await loadQuestions(curCat); } // always fresh
+function renderQList(){
   const qs=_qCache[curCat]||[];const w=document.getElementById('qlistwrap');
-  if(!qs.length){
-    const urlSet=gurl()?'':'<br><br><strong>⚠ Set Apps Script URL in Settings first</strong>';
-    w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions in this category</div><div class="es">Import from Word, add manually, or check Google Sheet.'+urlSet+'</div></div>';
-    return;
-  }
+  if(!qs.length){w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions yet</div><div class="es">Import from Word document or add manually.</div></div>';return;}
   let html='<div class="qlist">';
   qs.forEach((q,i)=>{
     html+=`<div class="qitem"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
@@ -1113,13 +1071,8 @@ function delQ(idx){
   showConfirm('Delete Question','This question will be permanently deleted.',async()=>{
     if(!_qCache[curCat])return;
     _qCache[curCat].splice(idx,1);
-    const ok=await saveQuestionsRemote(curCat,_qCache[curCat]);
-    if(ok){
-      await renderCatFilters();
-      await renderQList();
-      renderDash();
-      toast('Question deleted','ok');
-    }
+    await saveQuestionsRemote(curCat,_qCache[curCat]);
+    renderQList();renderDash();renderCatFilters();toast('Question deleted');
   });
 }
 
@@ -1215,11 +1168,6 @@ async function confirmImport(){
   const catEl=document.getElementById('imp_cat');
   if(!catEl) return;
   const cat=catEl.value;
-  if(!parsedImport||(!parsedImport.questions&&!parsedImport.map)){
-    toast('No data to import','er'); return;
-  }
-  if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
-  if(!getASK()){toast('Set Admin Secret Key in Settings first','er');return;}
   if(!_qCache[cat]) _qCache[cat]=[];
 
   if(parsedImport.type==='answers'){
@@ -1234,13 +1182,13 @@ async function confirmImport(){
         }
       }
     });
-    const ok=await saveQuestionsRemote(cat,_qCache[cat]);
-    if(ok) toast('Updated '+updated+' answer keys ✓','ok');
+    await saveQuestionsRemote(cat,_qCache[cat]);
+    toast('Updated '+updated+' answer keys in '+CATS[cat].n+' — '+CATS[cat].l,'ok');
   } else {
     const before=_qCache[cat].length;
     _qCache[cat]=_qCache[cat].concat(parsedImport.questions);
-    const ok=await saveQuestionsRemote(cat,_qCache[cat]);
-    if(ok) toast('Imported '+(_qCache[cat].length-before)+' questions ✓','ok');
+    await saveQuestionsRemote(cat,_qCache[cat]);
+    toast('Imported '+(_qCache[cat].length-before)+' questions into '+CATS[cat].n+' — '+CATS[cat].l,'ok');
   }
   const wp=document.getElementById('wordImportPanel');
   const wpr=document.getElementById('wordPreview');
@@ -1249,9 +1197,7 @@ async function confirmImport(){
   if(wpr) wpr.style.display='none';
   if(wfn) wfn.textContent='No file selected';
   parsedImport=[];
-  await renderCatFilters();
-  await renderQList();
-  renderDash();
+  renderQList();renderDash();renderCatFilters();
 }
 
 // ════════════ ADD QUESTION MANUALLY ════════════
@@ -1259,7 +1205,7 @@ async function saveQuestion(){
   const catEl=document.getElementById('aq_cat');
   const typeEl=document.getElementById('aq_type');
   const textEl=document.getElementById('aq_text');
-  if(!catEl||!typeEl||!textEl) return;
+  if(!catEl||!typeEl||!textEl)return;
   const cat=catEl.value, type=typeEl.value, text=textEl.value.trim();
   if(!text){toast('Question text is required','er');return;}
   if(!_qCache[cat]) _qCache[cat]=[];
@@ -1273,15 +1219,11 @@ async function saveQuestion(){
     const marks=marksEl?parseInt(marksEl.value)||5:5;
     _qCache[cat].push({type:'desc',text,marks});
   }
-  const ok=await saveQuestionsRemote(cat,_qCache[cat]);
-  if(ok){
-    textEl.value='';
-    [0,1,2,3].forEach(i=>{const el=document.getElementById('aq_o'+i);if(el)el.value='';});
-    const r0=document.querySelector('input[name="aq_c"][value="0"]');if(r0)r0.checked=true;
-    await renderCatFilters();
-    await renderQList();
-    renderDash();
-  }
+  await saveQuestionsRemote(cat,_qCache[cat]);
+  textEl.value='';
+  [0,1,2,3].forEach(i=>{const el=document.getElementById('aq_o'+i);if(el)el.value='';});
+  const r0=document.querySelector('input[name="aq_c"][value="0"]');if(r0)r0.checked=true;
+  renderQList();renderDash();renderCatFilters();
 }
 
 // ════════════ SETTINGS ════════════
@@ -1430,8 +1372,7 @@ async function doCandLogin(){
   await loadSettings();
   hideLoad();
   if(pw()[cat]!==pass){err.textContent='Incorrect test password. Please contact your administrator.';err.style.display='block';return;}
-  // Force fresh questions from server (clear cache for this cat)
-  delete _qCache[cat];
+  // Load questions from server
   const qs=await loadQuestions(cat);
   if(!qs.length){err.textContent='No questions available for this category. Please contact the administrator.';err.style.display='block';return;}
   err.style.display='none';
@@ -1983,22 +1924,6 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('qa_export','click',exportJSON);
 
   // Word import
-  on('syncSheetBtn','click',async()=>{
-    _qCache={};
-    await renderCatFilters();
-    await renderQList();
-    renderDash();
-    toast('Synced from Google Sheet ✓','ok');
-  });
-  on('syncSheetBtn','click',async()=>{
-    if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
-    toast('Syncing from Google Sheet...','');
-    _qCache={};
-    await reloadAllQuestions();
-    renderCatFilters();
-    renderQList();
-    toast('Synced from Google Sheet ✓','ok');
-  });
   on('importWordBtn','click',()=>{
     const wp=document.getElementById('wordImportPanel');
     const ap=document.getElementById('addpanel');
@@ -2076,29 +2001,17 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('jsonFile','change',e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
-    r.onload=ev=>{
-      try{
-        const imp=JSON.parse(ev.target.result);
-        showConfirm('Import JSON','Imported questions will be merged with existing.',async()=>{
-          showLoad('Importing to Google Sheet...');
-          let total=0;
-          for(const [k,v] of Object.entries(imp)){
-            if(!Array.isArray(v)||!CATS[k]) continue;
-            if(!_qCache[k]) _qCache[k]=[];
-            _qCache[k]=_qCache[k].concat(v);
-            total+=v.length;
-            await saveQuestionsRemote(k,_qCache[k]);
-          }
-          hideLoad();
-          renderDash();
-          await renderCatFilters();
-          await renderQList();
-          toast('Imported '+total+' questions to Sheet ✓','ok');
-        });
-      }catch(e){ toast('Invalid JSON: '+e.message,'er'); }
-    };
-    r.readAsText(f);
-    e.target.value='';
+    r.onload=ev=>{try{const imp=JSON.parse(ev.target.result);showConfirm('Import JSON','Imported questions will be merged with existing.',async()=>{
+      showLoad('Importing questions...');
+      for(const [k,v] of Object.entries(imp)){
+        if(!Array.isArray(v))continue;
+        if(!_qCache[k])_qCache[k]=[];
+        _qCache[k]=_qCache[k].concat(v);
+        await saveQuestionsRemote(k,_qCache[k]);
+      }
+      hideLoad();renderDash();renderCatFilters();renderQList();toast('Import successful ✓','ok');
+    });}catch(e){toast('Invalid JSON file','er');}};
+    r.readAsText(f);e.target.value='';
   });
 
   // Confirm modal
@@ -2112,25 +2025,6 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
   // LAN tab
   on('urlSettInput','focus',()=>{ const el=document.getElementById('urlSettInput');if(el&&!el.value)el.value=gurl(); });
-  on('testConnBtn','click',async()=>{
-    const url=gurl();
-    const statusEl=document.getElementById('connStatus');
-    if(!url){
-      if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ No URL set. Save URL first.';}
-      return;
-    }
-    if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing connection...';}
-    const res=await apiGet({action:'ping'});
-    if(statusEl){
-      if(res&&res.status==='ok'){
-        statusEl.style.color='#1a7a4a';
-        statusEl.textContent='✅ Connected! Server time: '+res.time;
-      } else {
-        statusEl.style.color='#c0392b';
-        statusEl.textContent='❌ Connection failed. Check URL and deployment settings.';
-      }
-    }
-  });
   on('saveUrlSettBtn','click',()=>{
     const urlEl=document.getElementById('urlSettInput');
     const skEl=document.getElementById('adminSecretInput');
