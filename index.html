@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -338,6 +337,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <button class="tnbtn g" id="tabSettBtn">⚙ Settings</button>
       <button class="tnbtn g" id="tabLanBtn">🌐 LAN Setup</button>
       <button class="tnbtn y" id="sheetModalBtn">🔗 Google Sheet</button>
+      <button class="tnbtn g" id="forceRefreshBtn" title="Refresh all data">🔄 Force Refresh</button>
+      <button class="tnbtn g" id="syncPendingBtn" title="Sync offline results">📤 Sync Pending</button>
       <button class="tnbtn g" id="adminLogoutBtn">Logout</button>
     </div>
   </nav>
@@ -381,6 +382,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-teal" id="importWordBtn">📄 Import from Word (.docx)</button>
           <button class="btn btn-g" id="toggleAddBtn">＋ Add Manually</button>
+          <button class="btn btn-o btn-sm" id="syncSheetBtn">🔄 Sync from Sheet</button>
           <button class="btn btn-o btn-sm" id="importJsonBtn">📂 Import JSON</button>
         </div>
       </div>
@@ -508,7 +510,11 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
             <input id="adminSecretInput" type="password" placeholder="ISRA-ADMIN-XXXXXXXX"/>
             <span class="pass-eye" id="toggleSecretKey">👁</span>
           </div></div>
-        <button class="btn btn-n" id="saveUrlSettBtn">Save URL & Key</button>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn btn-n" id="saveUrlSettBtn">Save URL & Key</button>
+          <button class="btn btn-o" id="testConnBtn">🔌 Test Connection</button>
+        </div>
+        <div id="connStatus" style="margin-top:10px;font-size:13px;display:none"></div>
       </div>
       <div class="card">
         <div class="ct">Admin Password</div>
@@ -792,7 +798,17 @@ const UK='isra_url', AIK='isra_ai', APK='isra_ap', ASK='isra_sk', DK='isra_dur';
 
 let _qCache={}, _histCache=[], _settCache={}, _settLoaded=false;
 
-const gurl   = ()=>localStorage.getItem(UK)||'';
+// ═══════════════════════════════════════════════════
+// HARD-CODED APPS SCRIPT URL — Works on ALL computers
+// IMPORTANT: Replace YOUR_SCRIPT_ID with your actual ID
+// ═══════════════════════════════════════════════════
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
+const gurl   = ()=>{
+  if(APPS_SCRIPT_URL && APPS_SCRIPT_URL.includes('script.google.com')){
+    return APPS_SCRIPT_URL;
+  }
+  return localStorage.getItem(UK)||'';
+};
 const getAI  = ()=>localStorage.getItem(AIK)||'';
 const getAP  = ()=>localStorage.getItem(APK)||AHASH;
 const setAP  = v =>localStorage.setItem(APK,v);
@@ -833,7 +849,9 @@ async function loadSettings(){
   return _settCache;
 }
 async function saveSettingsRemote(obj){
-  return await apiPost({action:'saveSettings',secret:getASK(),settings:obj});
+  const res=await apiPost({action:'saveSettings',secret:getASK(),settings:obj});
+  if(res&&!res.error){ Object.assign(_settCache,obj); broadcastUpdate('SETTINGS_UPDATED'); }
+  return res;
 }
 function pw(){
   const p={}; Object.keys(CATS).forEach(k=>{ p[k]=_settCache['pw_'+k]||'isra123'; }); return p;
@@ -842,21 +860,230 @@ function pw(){
 // ── QUESTIONS ─────────────────────────────────────
 function db(){ return _qCache; }
 async function loadQuestions(cat){
-  if(_qCache[cat]&&_qCache[cat].length) return _qCache[cat];
-  if(!gurl()) return [];
-  showLoad('Loading questions from server...');
-  const res=await apiGet({action:'getQuestions',cat});
+  if(!gurl()){ return _qCache[cat]||[]; }
+  showLoad('Loading questions...');
+  try{
+    const res=await apiGet({action:'getQuestions',cat});
+    hideLoad();
+    if(res&&Array.isArray(res.questions)){
+      _qCache[cat]=res.questions;
+      return res.questions;
+    }
+  }catch(e){ hideLoad(); console.error('loadQuestions',e); }
+  return _qCache[cat]||[];
+}
+// Force reload — bypass cache completely
+async function reloadAllQuestions(){
+  _qCache={};
+  if(!gurl()) return;
+  showLoad('Syncing all questions from Google Sheet...');
+  for(const cat of Object.keys(CATS)){
+    try{
+      const res=await apiGet({action:'getQuestions',cat});
+      if(res&&Array.isArray(res.questions)) _qCache[cat]=res.questions;
+    }catch(e){}
+  }
   hideLoad();
-  if(res&&res.questions){ _qCache[cat]=res.questions; return res.questions; }
-  return [];
 }
 async function saveQuestionsRemote(cat,questions){
-  if(!gurl()){ toast('Apps Script URL not set','er'); return; }
-  showLoad('Saving questions to server...');
-  const res=await apiPost({action:'saveQuestions',secret:getASK(),cat,questions});
+  if(!gurl()){ toast('No Apps Script URL — check Settings','er'); return false; }
+  if(!getASK()){ toast('No Admin Secret Key — check Settings','er'); return false; }
+  showLoad('Saving to Google Sheet...');
+  try{
+    const res=await apiPost({action:'saveQuestions',secret:getASK(),cat,questions});
+    hideLoad();
+    if(res&&res.saved){
+      _qCache[cat]=questions;
+      broadcastUpdate('QUESTIONS_UPDATED',{cat});
+      toast(questions.length+' questions saved to Google Sheet ✓','ok');
+      return true;
+    } else {
+      const msg=(res&&res.error)||'Unknown error';
+      toast('Save failed: '+msg,'er');
+      console.error('saveQuestionsRemote failed',res);
+      return false;
+    }
+  }catch(e){
+    hideLoad();
+    toast('Save error: '+e.message,'er');
+    console.error('saveQuestionsRemote exception',e);
+    return false;
+  }
+}
+
+
+// ═══════════════════════════════════════════════════
+// BATCH SAVE — Prevents timeout for large imports
+// ═══════════════════════════════════════════════════
+
+const BATCH_SIZE = 50;
+
+async function saveQuestionsBatch(cat, questions){
+  if(!gurl()){ toast('No Apps Script URL — check Settings','er'); return false; }
+  if(!getASK()){ toast('No Admin Secret Key — check Settings','er'); return false; }
+
+  const totalBatches = Math.ceil(questions.length / BATCH_SIZE);
+  let totalSaved = 0;
+
+  showLoad('Uploading 0/'+questions.length+' questions...');
+
+  for(let i = 0; i < totalBatches; i++){
+    const batch = questions.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+    let retries = 3;
+    let success = false;
+
+    while(retries > 0 && !success){
+      try{
+        const res = await apiPost({
+          action: 'batchSaveQuestions',
+          secret: getASK(),
+          cat: cat,
+          questions: batch,
+          batchIndex: i,
+          totalBatches: totalBatches
+        });
+
+        if(res && res.saved){
+          totalSaved += batch.length;
+          document.getElementById('loadMsg').textContent = 
+            'Uploading '+totalSaved+'/'+questions.length+' questions...';
+          success = true;
+        } else {
+          throw new Error(res?.error || 'Unknown error');
+        }
+      } catch(e){
+        retries--;
+        if(retries === 0){
+          hideLoad();
+          toast('Failed at batch '+(i+1)+': '+e.message, 'er');
+          return false;
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+  }
+
   hideLoad();
-  if(res&&res.saved){ _qCache[cat]=questions; toast('Questions saved to Google Sheet ✓','ok'); }
-  else toast('Save failed. Check Admin Secret Key in Settings.','er');
+  toast(totalSaved+' questions saved to Google Sheet ✓', 'ok');
+  _qCache[cat] = questions;
+  broadcastUpdate('QUESTIONS_UPDATED', { cat });
+  return true;
+}
+
+// ═══════════════════════════════════════════════════
+// CROSS-TAB SYNC — BroadcastChannel
+// ═══════════════════════════════════════════════════
+
+let bc = null;
+let lastServerTime = 0;
+
+function initBroadcastChannel(){
+  try{
+    bc = new BroadcastChannel('isra_portal_sync');
+    bc.onmessage = (event) => {
+      const msg = event.data;
+      if(msg.type === 'QUESTIONS_UPDATED'){
+        _qCache[msg.cat] = null;
+        if(document.getElementById('pgAdmin').style.display === 'block'){
+          toast('Questions updated by another admin. Refreshing...', 'ok');
+          renderCatFilters(); renderQList(); renderDash();
+        }
+      }
+      if(msg.type === 'SETTINGS_UPDATED'){
+        _settLoaded = false; _settCache = {};
+        if(document.getElementById('pgAdmin').style.display === 'block'){
+          toast('Settings updated. Refreshing...', 'ok'); initAdmin();
+        }
+      }
+      if(msg.type === 'HISTORY_UPDATED'){
+        _histCache = [];
+        if(document.getElementById('pgAdmin').style.display === 'block') renderHist();
+      }
+      if(msg.type === 'FORCE_REFRESH'){
+        forceClearCache(); location.reload();
+      }
+    };
+  } catch(e){ console.warn('BroadcastChannel not supported:', e); }
+}
+
+function broadcastUpdate(type, data = {}){
+  if(bc) bc.postMessage({ type, ...data, timestamp: Date.now() });
+}
+
+function forceClearCache(){
+  _qCache = {}; _settCache = {}; _settLoaded = false; _histCache = [];
+}
+
+// ═══════════════════════════════════════════════════
+// AUTO-POLLING — Near real-time sync
+// ═══════════════════════════════════════════════════
+
+let pollTimer = null;
+const POLL_INTERVAL = 15000;
+
+function startAutoRefresh(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if(document.getElementById('pgAdmin').style.display !== 'block') return;
+    try{
+      const res = await apiGet({action: 'ping'});
+      if(res && res.status === 'ok'){
+        const serverTime = new Date(res.time).getTime();
+        if(serverTime > lastServerTime){
+          lastServerTime = serverTime;
+          const activeTab = document.querySelector('.tab.on');
+          if(activeTab){
+            const tabId = activeTab.id.replace('tab_', '');
+            if(tabId === 'qbank'){ await renderCatFilters(); await renderQList(); }
+            else if(tabId === 'dash') await renderDash();
+            else if(tabId === 'hist') await renderHist();
+          }
+        }
+      }
+    } catch(e){ console.log('Poll error:', e); }
+  }, POLL_INTERVAL);
+}
+
+function stopAutoRefresh(){
+  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ═══════════════════════════════════════════════════
+// LOCAL FALLBACK — Save offline, sync later
+// ═══════════════════════════════════════════════════
+
+function saveResultLocally(data){
+  const key = 'isra_pending_results';
+  const existing = JSON.parse(localStorage.getItem(key) || '[]');
+  existing.push({...data, pending: true, savedAt: new Date().toISOString()});
+  localStorage.setItem(key, JSON.stringify(existing));
+}
+
+async function syncPendingResults(){
+  const key = 'isra_pending_results';
+  const pending = JSON.parse(localStorage.getItem(key) || '[]');
+  if(!pending.length) return;
+
+  const remaining = [];
+  for(const data of pending){
+    try{
+      const res = await apiPost({
+        action: 'saveResult',
+        date: data.date, time: data.time, name: data.name, father: data.father,
+        cnic: data.cnic, test: data.test, score: data.score,
+        correct: data.correct, wrong: data.wrong, skipped: data.skipped,
+        totalMcq: data.totalMcq, timeTaken: data.timeTaken,
+        refId: data.refId || '', aiAnalysis: data.aiAnalysis || '',
+        cheatCount: data.cheatCount || 0
+      });
+      if(!res || !res.saved) remaining.push(data);
+    } catch(e){ remaining.push(data); }
+  }
+
+  localStorage.setItem(key, JSON.stringify(remaining));
+  if(remaining.length < pending.length){
+    toast('Synced '+(pending.length - remaining.length)+' pending results ✓', 'ok');
+  }
 }
 
 // ── HISTORY ───────────────────────────────────────
@@ -871,7 +1098,7 @@ async function loadHistory(){
 }
 async function clearHistoryRemote(){
   const res=await apiPost({action:'clearHistory',secret:getASK()});
-  if(res&&res.cleared){ _histCache=[]; return true; }
+  if(res&&res.cleared){ _histCache=[]; broadcastUpdate('HISTORY_UPDATED'); return true; }
   return false;
 }
 
@@ -956,22 +1183,18 @@ async function saveAdminPw(){
 
 // ════════════ ADMIN INIT ════════════
 async function initAdmin(){
-  showLoad('Loading settings...');
+  showLoad('Connecting to Google Sheet...');
   await loadSettings();
   hideLoad();
-  openTab('dash');
   renderPwFields();
-  const d=document.getElementById('durInput');
-  if(d) d.value=dur();
-  const ac=document.getElementById('aq_cat');
-  if(ac) ac.value=curCat;
-  const ic=document.getElementById('imp_cat');
-  if(ic) ic.value=curCat;
-  const aiKey=getAI();
-  const aiEl=document.getElementById('aiKeyInput');
-  if(aiEl&&aiKey) aiEl.value=aiKey;
-  const askEl=document.getElementById('adminSecretInput');
-  if(askEl) askEl.value=getASK();
+  const d=document.getElementById('durInput');if(d) d.value=dur();
+  const ac=document.getElementById('aq_cat');if(ac) ac.value=curCat;
+  const ic=document.getElementById('imp_cat');if(ic) ic.value=curCat;
+  const aiEl=document.getElementById('aiKeyInput');if(aiEl) aiEl.value=getAI();
+  const askEl=document.getElementById('adminSecretInput');if(askEl) askEl.value=getASK();
+  const urlEl=document.getElementById('urlSettInput');if(urlEl) urlEl.value=gurl();
+  // Show dashboard with live data
+  openTab('dash');
 }
 
 function openTab(id){
@@ -985,7 +1208,7 @@ function openTab(id){
   const tbe=document.getElementById('tab_'+id);
   if(tpe) tpe.classList.add('on');
   if(tbe) tbe.classList.add('on');
-  if(id==='qbank'){renderCatFilters();renderQList();}
+  if(id==='qbank'){renderCatFilters().then(()=>renderQList());}
   if(id==='dash'){renderDash();}
   if(id==='hist'){renderHistCatFilters();renderHist();}
   if(id==='lan'){renderChecklist();}
@@ -1012,8 +1235,10 @@ function renderChecklist(){
 }
 
 // ════════════ DASHBOARD ════════════
-function renderDash(){
-  const d=db();let tot=0,mcq=0,des=0;
+async function renderDash(){
+  // Always reload fresh from server
+  if(gurl()) await reloadAllQuestions();
+  const d=_qCache;let tot=0,mcq=0,des=0;
   Object.values(d).forEach(a=>{if(!Array.isArray(a))return;tot+=a.length;a.forEach(q=>q.type==='mcq'?mcq++:des++);});
   const st=document.getElementById('st_tot');if(st)st.textContent=tot;
   const sm=document.getElementById('st_mcq');if(sm)sm.textContent=mcq;
@@ -1035,8 +1260,10 @@ function renderDash(){
 }
 
 // ════════════ CAT FILTERS ════════════
-function renderCatFilters(){
+async function renderCatFilters(){
   const row=document.getElementById('cfrow');if(!row)return;row.innerHTML='';
+  // Show live counts from server
+  if(gurl()) await reloadAllQuestions();
   Object.entries(CATS).forEach(([k,c])=>{
     const cnt=(_qCache[k]||[]).length;
     const btn=document.createElement('button');
@@ -1048,9 +1275,14 @@ function renderCatFilters(){
 }
 
 // ════════════ QUESTION LIST ════════════
-function renderQList(){
+async function renderQList(){
+  if(gurl()){ await loadQuestions(curCat); } // always fresh
   const qs=_qCache[curCat]||[];const w=document.getElementById('qlistwrap');
-  if(!qs.length){w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions yet</div><div class="es">Import from Word document or add manually.</div></div>';return;}
+  if(!qs.length){
+    const urlSet=gurl()?'':'<br><br><strong>⚠ Set Apps Script URL in Settings first</strong>';
+    w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions in this category</div><div class="es">Import from Word, add manually, or check Google Sheet.'+urlSet+'</div></div>';
+    return;
+  }
   let html='<div class="qlist">';
   qs.forEach((q,i)=>{
     html+=`<div class="qitem"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
@@ -1071,8 +1303,13 @@ function delQ(idx){
   showConfirm('Delete Question','This question will be permanently deleted.',async()=>{
     if(!_qCache[curCat])return;
     _qCache[curCat].splice(idx,1);
-    await saveQuestionsRemote(curCat,_qCache[curCat]);
-    renderQList();renderDash();renderCatFilters();toast('Question deleted');
+    const ok=await saveQuestionsRemote(curCat,_qCache[curCat]);
+    if(ok){
+      await renderCatFilters();
+      await renderQList();
+      renderDash();
+      toast('Question deleted','ok');
+    }
   });
 }
 
@@ -1168,6 +1405,11 @@ async function confirmImport(){
   const catEl=document.getElementById('imp_cat');
   if(!catEl) return;
   const cat=catEl.value;
+  if(!parsedImport||(!parsedImport.questions&&!parsedImport.map)){
+    toast('No data to import','er'); return;
+  }
+  if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
+  if(!getASK()){toast('Set Admin Secret Key in Settings first','er');return;}
   if(!_qCache[cat]) _qCache[cat]=[];
 
   if(parsedImport.type==='answers'){
@@ -1182,13 +1424,13 @@ async function confirmImport(){
         }
       }
     });
-    await saveQuestionsRemote(cat,_qCache[cat]);
-    toast('Updated '+updated+' answer keys in '+CATS[cat].n+' — '+CATS[cat].l,'ok');
+    const ok=await saveQuestionsBatch(cat,_qCache[cat]);
+    if(ok) toast('Updated '+updated+' answer keys ✓','ok');
   } else {
     const before=_qCache[cat].length;
     _qCache[cat]=_qCache[cat].concat(parsedImport.questions);
-    await saveQuestionsRemote(cat,_qCache[cat]);
-    toast('Imported '+(_qCache[cat].length-before)+' questions into '+CATS[cat].n+' — '+CATS[cat].l,'ok');
+    const ok=await saveQuestionsBatch(cat,_qCache[cat]);
+    if(ok) toast('Imported '+(_qCache[cat].length-before)+' questions ✓','ok');
   }
   const wp=document.getElementById('wordImportPanel');
   const wpr=document.getElementById('wordPreview');
@@ -1197,7 +1439,9 @@ async function confirmImport(){
   if(wpr) wpr.style.display='none';
   if(wfn) wfn.textContent='No file selected';
   parsedImport=[];
-  renderQList();renderDash();renderCatFilters();
+  await renderCatFilters();
+  await renderQList();
+  renderDash();
 }
 
 // ════════════ ADD QUESTION MANUALLY ════════════
@@ -1205,7 +1449,7 @@ async function saveQuestion(){
   const catEl=document.getElementById('aq_cat');
   const typeEl=document.getElementById('aq_type');
   const textEl=document.getElementById('aq_text');
-  if(!catEl||!typeEl||!textEl)return;
+  if(!catEl||!typeEl||!textEl) return;
   const cat=catEl.value, type=typeEl.value, text=textEl.value.trim();
   if(!text){toast('Question text is required','er');return;}
   if(!_qCache[cat]) _qCache[cat]=[];
@@ -1219,11 +1463,15 @@ async function saveQuestion(){
     const marks=marksEl?parseInt(marksEl.value)||5:5;
     _qCache[cat].push({type:'desc',text,marks});
   }
-  await saveQuestionsRemote(cat,_qCache[cat]);
-  textEl.value='';
-  [0,1,2,3].forEach(i=>{const el=document.getElementById('aq_o'+i);if(el)el.value='';});
-  const r0=document.querySelector('input[name="aq_c"][value="0"]');if(r0)r0.checked=true;
-  renderQList();renderDash();renderCatFilters();
+  const ok=await saveQuestionsBatch(cat,_qCache[cat]);
+  if(ok){
+    textEl.value='';
+    [0,1,2,3].forEach(i=>{const el=document.getElementById('aq_o'+i);if(el)el.value='';});
+    const r0=document.querySelector('input[name="aq_c"][value="0"]');if(r0)r0.checked=true;
+    await renderCatFilters();
+    await renderQList();
+    renderDash();
+  }
 }
 
 // ════════════ SETTINGS ════════════
@@ -1372,7 +1620,8 @@ async function doCandLogin(){
   await loadSettings();
   hideLoad();
   if(pw()[cat]!==pass){err.textContent='Incorrect test password. Please contact your administrator.';err.style.display='block';return;}
-  // Load questions from server
+  // Force fresh questions from server (clear cache for this cat)
+  delete _qCache[cat];
   const qs=await loadQuestions(cat);
   if(!qs.length){err.textContent='No questions available for this category. Please contact the administrator.';err.style.display='block';return;}
   err.style.display='none';
@@ -1844,29 +2093,35 @@ function exportExcel(){
 async function sendSheet(data){
   const url=gurl();const bar=document.getElementById('r_savebar');
   if(!url){
-    if(bar){bar.className='savebar sb-er';bar.textContent='⚠ Apps Script URL not configured. Admin → Settings.';}
+    if(bar){bar.className='savebar sb-er';bar.textContent='⚠ URL not configured. Saved locally.';}
+    saveResultLocally(data);
     return;
   }
   if(bar){bar.className='savebar sb-w';bar.textContent='⏳ Saving result to Google Sheet...';}
-  try{
-    const res=await apiPost({
-      action:'saveResult',
-      date:data.date,time:data.time,name:data.name,father:data.father,
-      cnic:data.cnic,test:data.test,score:data.score,
-      correct:data.correct,wrong:data.wrong,skipped:data.skipped,
-      totalMcq:data.totalMcq,timeTaken:data.timeTaken,
-      refId:data.refId||'',aiAnalysis:data.aiAnalysis||'',
-      cheatCount:data.cheatCount||0
-    });
-    if(bar){
-      if(res&&(res.saved||res.status==='ok')){
-        bar.className='savebar sb-ok';bar.textContent='✅ Result saved to Google Sheet!';
+
+  let retries=3;
+  while(retries>0){
+    try{
+      const res=await apiPost({
+        action:'saveResult',
+        date:data.date,time:data.time,name:data.name,father:data.father,
+        cnic:data.cnic,test:data.test,score:data.score,
+        correct:data.correct,wrong:data.wrong,skipped:data.skipped,
+        totalMcq:data.totalMcq,timeTaken:data.timeTaken,
+        refId:data.refId||'',aiAnalysis:data.aiAnalysis||'',
+        cheatCount:data.cheatCount||0
+      });
+      if(bar){bar.className='savebar sb-ok';bar.textContent='✅ Result saved to Google Sheet!';}
+      return;
+    }catch(e){
+      retries--;
+      if(retries===0){
+        if(bar){bar.className='savebar sb-er';bar.textContent='❌ Saved locally (will sync when online).';}
+        saveResultLocally(data);
       } else {
-        bar.className='savebar sb-ok';bar.textContent='✅ Result submitted successfully!';
+        await new Promise(r=>setTimeout(r,2000));
       }
     }
-  }catch(e){
-    if(bar){bar.className='savebar sb-er';bar.textContent='❌ Could not save. Check Apps Script URL in Settings.';}
   }
 }
 
@@ -1875,12 +2130,29 @@ async function sendSheet(data){
 function on(id,evt,fn){const el=document.getElementById(id);if(el)el.addEventListener(evt,fn);}
 
 document.addEventListener('DOMContentLoaded',async()=>{
+  // Initialize cross-tab sync
+  initBroadcastChannel();
+
   // Set initial admin password hash if not set
   if(!localStorage.getItem(APK)){
     const h=await hashStr('Alibaloch-IU');
     setAP(h);
   }
   goTo('pgLogin');
+
+  // Auto-polling when admin panel visible
+  const adminObserver = new MutationObserver((mutations)=>{
+    mutations.forEach((m)=>{
+      if(m.target.id==='pgAdmin'){
+        if(m.target.style.display==='block') startAutoRefresh();
+        else stopAutoRefresh();
+      }
+    });
+  });
+  adminObserver.observe(document.getElementById('pgAdmin'),{attributes:true,attributeFilter:['style']});
+
+  // Sync pending results on load
+  syncPendingResults();
 
   // Password toggles
   on('toggleCandPass','click',()=>togglePass('cl_pass'));
@@ -1924,6 +2196,22 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('qa_export','click',exportJSON);
 
   // Word import
+  on('syncSheetBtn','click',async()=>{
+    _qCache={};
+    await renderCatFilters();
+    await renderQList();
+    renderDash();
+    toast('Synced from Google Sheet ✓','ok');
+  });
+  on('syncSheetBtn','click',async()=>{
+    if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
+    toast('Syncing from Google Sheet...','');
+    _qCache={};
+    await reloadAllQuestions();
+    renderCatFilters();
+    renderQList();
+    toast('Synced from Google Sheet ✓','ok');
+  });
   on('importWordBtn','click',()=>{
     const wp=document.getElementById('wordImportPanel');
     const ap=document.getElementById('addpanel');
@@ -2001,17 +2289,29 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('jsonFile','change',e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
-    r.onload=ev=>{try{const imp=JSON.parse(ev.target.result);showConfirm('Import JSON','Imported questions will be merged with existing.',async()=>{
-      showLoad('Importing questions...');
-      for(const [k,v] of Object.entries(imp)){
-        if(!Array.isArray(v))continue;
-        if(!_qCache[k])_qCache[k]=[];
-        _qCache[k]=_qCache[k].concat(v);
-        await saveQuestionsRemote(k,_qCache[k]);
-      }
-      hideLoad();renderDash();renderCatFilters();renderQList();toast('Import successful ✓','ok');
-    });}catch(e){toast('Invalid JSON file','er');}};
-    r.readAsText(f);e.target.value='';
+    r.onload=ev=>{
+      try{
+        const imp=JSON.parse(ev.target.result);
+        showConfirm('Import JSON','Imported questions will be merged with existing.',async()=>{
+          showLoad('Importing to Google Sheet...');
+          let total=0;
+          for(const [k,v] of Object.entries(imp)){
+            if(!Array.isArray(v)||!CATS[k]) continue;
+            if(!_qCache[k]) _qCache[k]=[];
+            _qCache[k]=_qCache[k].concat(v);
+            total+=v.length;
+            await saveQuestionsRemote(k,_qCache[k]);
+          }
+          hideLoad();
+          renderDash();
+          await renderCatFilters();
+          await renderQList();
+          toast('Imported '+total+' questions to Sheet ✓','ok');
+        });
+      }catch(e){ toast('Invalid JSON: '+e.message,'er'); }
+    };
+    r.readAsText(f);
+    e.target.value='';
   });
 
   // Confirm modal
@@ -2025,6 +2325,25 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
   // LAN tab
   on('urlSettInput','focus',()=>{ const el=document.getElementById('urlSettInput');if(el&&!el.value)el.value=gurl(); });
+  on('testConnBtn','click',async()=>{
+    const url=gurl();
+    const statusEl=document.getElementById('connStatus');
+    if(!url){
+      if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ No URL set. Save URL first.';}
+      return;
+    }
+    if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing connection...';}
+    const res=await apiGet({action:'ping'});
+    if(statusEl){
+      if(res&&res.status==='ok'){
+        statusEl.style.color='#1a7a4a';
+        statusEl.textContent='✅ Connected! Server time: '+res.time;
+      } else {
+        statusEl.style.color='#c0392b';
+        statusEl.textContent='❌ Connection failed. Check URL and deployment settings.';
+      }
+    }
+  });
   on('saveUrlSettBtn','click',()=>{
     const urlEl=document.getElementById('urlSettInput');
     const skEl=document.getElementById('adminSecretInput');
@@ -2050,6 +2369,27 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
   on('tabLanBtn','click',()=>openTab('lan'));
   on('tab_lan','click',()=>openTab('lan'));
+
+  // Force Refresh
+  on('forceRefreshBtn','click',async()=>{
+    showLoad('Force refreshing...');
+    forceClearCache();
+    await reloadAllQuestions();
+    await loadSettings(true);
+    await loadHistory();
+    const activeTab=document.querySelector('.tab.on');
+    if(activeTab){ const tabId=activeTab.id.replace('tab_',''); openTab(tabId); }
+    hideLoad();
+    toast('All data refreshed ✓','ok');
+    broadcastUpdate('FORCE_REFRESH');
+  });
+
+  // Sync Pending Results
+  on('syncPendingBtn','click',async()=>{
+    showLoad('Syncing pending results...');
+    await syncPendingResults();
+    hideLoad();
+  });
 
   // Test
   on('qnextBtn','click',advQ);
