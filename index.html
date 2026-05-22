@@ -269,6 +269,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
   .rcard{box-shadow:none!important;max-width:100%!important;border-radius:0!important}
 }
 </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -800,13 +801,18 @@ let _qCache={}, _histCache=[], _settCache={}, _settLoaded=false;
 
 // ═══════════════════════════════════════════════════
 // HARD-CODED APPS SCRIPT URL — Works on ALL computers
-// IMPORTANT: Replace YOUR_SCRIPT_ID with your actual ID
+// STEP 1: Deploy your Apps Script as Web App
+// STEP 2: Copy the Web App URL
+// STEP 3: Replace YOUR_SCRIPT_ID below with your actual ID
 // ═══════════════════════════════════════════════════
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
+
 const gurl   = ()=>{
+  // Priority 1: Hard-coded URL (works everywhere automatically)
   if(APPS_SCRIPT_URL && APPS_SCRIPT_URL.includes('script.google.com')){
     return APPS_SCRIPT_URL;
   }
+  // Priority 2: Fallback to localStorage (backward compatibility)
   return localStorage.getItem(UK)||'';
 };
 const getAI  = ()=>localStorage.getItem(AIK)||'';
@@ -914,6 +920,7 @@ async function saveQuestionsRemote(cat,questions){
 
 // ═══════════════════════════════════════════════════
 // BATCH SAVE — Prevents timeout for large imports
+// Splits questions into chunks of 50
 // ═══════════════════════════════════════════════════
 
 const BATCH_SIZE = 50;
@@ -971,7 +978,7 @@ async function saveQuestionsBatch(cat, questions){
 }
 
 // ═══════════════════════════════════════════════════
-// CROSS-TAB SYNC — BroadcastChannel
+// CROSS-TAB SYNC — BroadcastChannel for real-time
 // ═══════════════════════════════════════════════════
 
 let bc = null;
@@ -1015,7 +1022,7 @@ function forceClearCache(){
 }
 
 // ═══════════════════════════════════════════════════
-// AUTO-POLLING — Near real-time sync
+// AUTO-POLLING — Near real-time sync (15 sec)
 // ═══════════════════════════════════════════════════
 
 let pollTimer = null;
