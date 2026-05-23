@@ -280,6 +280,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
     <h1>ISRA Schools</h1>
     <p class="lsub">Online Teacher Recruitment Test Portal</p>
     <div class="notice">⚠️ Once the test starts you cannot go back to any previous question. Each MCQ has a 60-second timer. Make sure you are ready before starting.</div>
+    <div id="sysStatus" style="display:none;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:10px 13px;font-size:12px;margin-bottom:14px;text-align:center"></div>
     <div class="ebox" id="loginErr"></div>
     <div class="f"><label>Full Name *</label><input id="cl_name" type="text" placeholder="Enter your full name" autocomplete="off"/></div>
     <div class="f"><label>Father's Name *</label><input id="cl_father" type="text" placeholder="Enter father's full name" autocomplete="off"/></div>
@@ -500,15 +501,29 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <button class="btn btn-n" id="savePwBtn" style="margin-top:6px">Save Passwords</button>
       </div>
       <div class="card">
-        <div class="ct">🔥 Firebase Configuration (Real-time)</div>
-        <div class="cs">Questions, passwords and settings sync instantly across all computers. Free Firebase tier is enough for 50+ candidates.</div>
-        <div class="f"><label>Firebase Database URL</label>
+        <div class="ct">🔥 Firebase Configuration (PRIMARY Backend)</div>
+        <div class="cs">Questions, passwords & settings sync in REAL-TIME across all computers. Google Sheet is used only as backup for results.</div>
+        <div style="background:#e6f4ed;border:1px solid #a3d9b8;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#155724">
+          <strong>✅ STEP 1 — Set Firebase Rules (Required)</strong><br><br>
+          Open <strong>Firebase Console → Realtime Database → Rules</strong> and paste:<br>
+          <code style="background:#1e1e2e;color:#cdd6f4;padding:10px 14px;border-radius:8px;display:block;margin-top:10px;font-size:12px;white-space:pre;line-height:1.8">{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}</code>
+          <span style="font-size:11px;margin-top:8px;display:block">🔒 Safe for school LAN. No sensitive data stored. Click <strong>Publish</strong> and wait 30 seconds.</span>
+        </div>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#92400e">
+          <strong>💡 STEP 2 — Share with Candidate Computers</strong><br>
+          After saving Firebase URL below, click "Copy Config Link" and open that link on every candidate computer.
+        </div>
+        <button class="btn btn-g" id="shareConfigBtn" style="margin-bottom:14px">📋 Copy Config Link for Candidate Computers</button>
+        <div class="f"><label>Firebase Database URL <span style="font-size:11px;color:var(--mu)">(Required — paste from Firebase Console)</span></label>
           <input id="fbUrlInput" type="url" placeholder="https://your-project-default-rtdb.firebaseio.com"/></div>
-        <div class="f"><label>Firebase Database Secret <span style="font-size:11px;color:var(--mu)">(Project Settings → Service Accounts → Database secrets)</span></label>
-          <div class="pass-wrap">
-            <input id="fbSecInput" type="password" placeholder="Your Firebase database secret"/>
-            <span class="pass-eye" id="toggleFbSec">👁</span>
-          </div></div>
+        <div style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#1e40af">
+          <strong>ℹ️ No Secret Key needed!</strong> Just set Database Rules to public read/write (shown above).
+        </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
           <button class="btn btn-n" id="saveFbBtn">🔥 Save Firebase Config</button>
           <button class="btn btn-o" id="testFbBtn">🔌 Test Connection</button>
@@ -819,6 +834,37 @@ const getGS  = ()=>localStorage.getItem(GS_KEY)||'';
 const dur    = ()=>parseInt(_settCache.duration||localStorage.getItem(DK)||'60');
 const esc    = s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+// Share Firebase config via URL hash for easy multi-system setup
+function shareConfigViaUrl(){
+  const fb=getFB(), gs=getGS();
+  if(!fb){toast('No Firebase URL to share','er');return;}
+  const cfg = btoa(JSON.stringify({fb,gs}));
+  const url = window.location.origin + window.location.pathname + '#' + cfg;
+  navigator.clipboard.writeText(url).then(()=>{
+    toast('Config link copied! Open this URL on candidate computers.','ok');
+  }).catch(()=>{
+    prompt('Copy this URL and open on candidate computers:', url);
+  });
+}
+
+// Load config from URL hash if present
+function loadConfigFromUrl(){
+  const hash = window.location.hash.slice(1);
+  if(!hash) return false;
+  try{
+    const cfg = JSON.parse(atob(hash));
+    if(cfg.fb) localStorage.setItem(FB_KEY, cfg.fb);
+    if(cfg.gs) localStorage.setItem(GS_KEY, cfg.gs);
+    console.log('Config loaded from URL hash');
+    toast('Firebase config auto-loaded from URL!','ok');
+    return true;
+  }catch(e){ return false; }
+}
+
+// Legacy aliases for backward compatibility (deprecated code references)
+const gurl = () => getGS();  // Old Google Sheet URL getter
+const getASK = () => getFBS();  // Old admin secret getter
+
 // In-memory cache
 let _qCache={}, _histCache=[], _settCache={};
 
@@ -937,16 +983,15 @@ async function reloadAllQuestions(){
 
 async function saveQuestionsRemote(cat, questions){
   if(!getFB()){ toast('Firebase URL not set — check Settings','er'); return false; }
-  if(!getFBS()){ toast('Firebase Secret not set — check Settings','er'); return false; }
   showLoad('Saving '+questions.length+' questions to Firebase...');
   const ok=await fbSet('questions/'+cat, questions);
   hideLoad();
   if(ok){
     _qCache[cat]=questions;
-    toast(questions.length+' questions saved ✓','ok');
+    toast(questions.length+' questions saved to Firebase ✓','ok');
     return true;
   }
-  toast('Firebase save failed — check URL and Secret','er');
+  toast('Firebase save failed — check URL and Rules','er');
   return false;
 }
 
@@ -1090,7 +1135,6 @@ async function initAdmin(){
   const aiEl=document.getElementById('aiKeyInput');if(aiEl)aiEl.value=getAI();
   // Pre-fill Firebase fields
   const fb=document.getElementById('fbUrlInput');if(fb)fb.value=getFB();
-  const fbs=document.getElementById('fbSecInput');if(fbs)fbs.value=getFBS();
   const gs=document.getElementById('gsUrlInput');if(gs)gs.value=getGS();
 }
 
@@ -1133,8 +1177,8 @@ function renderChecklist(){
 
 // ════════════ DASHBOARD ════════════
 async function renderDash(){
-  // Always reload fresh from server
-  if(gurl()) await reloadAllQuestions();
+  // Always reload fresh from Firebase
+  if(getFB()) await reloadAllQuestions();
   const d=_qCache;let tot=0,mcq=0,des=0;
   Object.values(d).forEach(a=>{if(!Array.isArray(a))return;tot+=a.length;a.forEach(q=>q.type==='mcq'?mcq++:des++);});
   const st=document.getElementById('st_tot');if(st)st.textContent=tot;
@@ -1159,8 +1203,8 @@ async function renderDash(){
 // ════════════ CAT FILTERS ════════════
 async function renderCatFilters(){
   const row=document.getElementById('cfrow');if(!row)return;row.innerHTML='';
-  // Show live counts from server
-  if(gurl()) await reloadAllQuestions();
+  // Always reload from Firebase
+  if(getFB()) await reloadAllQuestions();
   Object.entries(CATS).forEach(([k,c])=>{
     const cnt=(_qCache[k]||[]).length;
     const btn=document.createElement('button');
@@ -1173,11 +1217,11 @@ async function renderCatFilters(){
 
 // ════════════ QUESTION LIST ════════════
 async function renderQList(){
-  if(gurl()){ await loadQuestions(curCat); } // always fresh
+  if(getFB()){ await loadQuestions(curCat); } // always fresh
   const qs=_qCache[curCat]||[];const w=document.getElementById('qlistwrap');
   if(!qs.length){
-    const urlSet=gurl()?'':'<br><br><strong>⚠ Set Apps Script URL in Settings first</strong>';
-    w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions in this category</div><div class="es">Import from Word, add manually, or check Google Sheet.'+urlSet+'</div></div>';
+    const fbSet=getFB()?'':'<br><br><strong>⚠ Set Firebase URL in Settings first</strong>';
+    w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions in this category</div><div class="es">Import from Word, add manually, or check Firebase.'+fbSet+'</div></div>';
     return;
   }
   let html='<div class="qlist">';
@@ -1305,8 +1349,7 @@ async function confirmImport(){
   if(!parsedImport||(!parsedImport.questions&&!parsedImport.map)){
     toast('No data to import','er'); return;
   }
-  if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
-  if(!getASK()){toast('Set Admin Secret Key in Settings first','er');return;}
+  if(!getFB()){toast('Set Firebase URL in Settings first','er');return;}
   if(!_qCache[cat]) _qCache[cat]=[];
 
   if(parsedImport.type==='answers'){
@@ -2027,6 +2070,9 @@ async function sendSheet(data){
 function on(id,evt,fn){const el=document.getElementById(id);if(el)el.addEventListener(evt,fn);}
 
 document.addEventListener('DOMContentLoaded',async()=>{
+  // Try to load Firebase config from URL hash (for multi-system setup)
+  loadConfigFromUrl();
+
   // Set initial admin password hash if not set
   if(!localStorage.getItem(APK)){
     const h=await hashStr('Alibaloch-IU');
@@ -2034,12 +2080,30 @@ document.addEventListener('DOMContentLoaded',async()=>{
   }
   goTo('pgLogin');
 
+  // Check system status and show warning if Firebase not configured
+  setTimeout(()=>{
+    const sysStatus=document.getElementById('sysStatus');
+    if(sysStatus){
+      if(!getFB()){
+        sysStatus.innerHTML = '⚠️ <strong>System Not Configured</strong><br>This computer needs Firebase URL. Please contact administrator.';
+        sysStatus.style.display='block';
+      } else {
+        sysStatus.innerHTML = '✅ <strong>System Ready</strong><br>Connected to Firebase. You can start your test.';
+        sysStatus.style.display='block';
+        sysStatus.style.background='#e6f4ed';
+        sysStatus.style.borderColor='#a3d9b8';
+        sysStatus.style.color='#155724';
+      }
+    }
+  }, 500);
+
   // Password toggles
   on('toggleCandPass','click',()=>togglePass('cl_pass'));
   on('toggleAdminPass','click',()=>togglePass('apwd'));
   on('toggleNewAdminPw','click',()=>togglePass('newAdminPw'));
   on('toggleConfAdminPw','click',()=>togglePass('confAdminPw'));
   on('toggleAiKey','click',()=>togglePass('aiKeyInput'));
+  on('toggleFbSec','click',()=>togglePass('fbSecInput'));
 
   // Candidate login
   on('startBtn','click',doCandLogin);
@@ -2084,7 +2148,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
     toast('Synced from Google Sheet ✓','ok');
   });
   on('syncSheetBtn','click',async()=>{
-    if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
+    if(!getFB()){toast('Set Apps Script URL in Settings first','er');return;}
     toast('Syncing from Google Sheet...','');
     _qCache={};
     await reloadAllQuestions();
@@ -2141,6 +2205,52 @@ document.addEventListener('DOMContentLoaded',async()=>{
     if(getFB()) saveSettingsRemote({ai_key:k});
     toast('AI API Key saved ✓','ok');
   });
+
+  // Firebase Settings
+  on('saveFbBtn','click',async()=>{
+    const urlEl=document.getElementById('fbUrlInput');
+    if(!urlEl)return;
+    const url=urlEl.value.trim();
+    if(!url){toast('Please enter Firebase Database URL','er');return;}
+    localStorage.setItem(FB_KEY,url);
+    toast('Firebase URL saved ✓','ok');
+    setTimeout(()=>document.getElementById('testFbBtn').click(),500);
+  });
+  on('testFbBtn','click',async()=>{
+    const url=getFB();
+    const statusEl=document.getElementById('fbStatus');
+    if(!url){if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase URL not set.';}return;}
+    if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing Firebase connection...';}
+    try{
+      const r=await fetch(url+'/.json',{method:'GET'});
+      if(r.ok){
+        const data = await r.json();
+        if(data && (data.questions || data.settings)){
+          if(statusEl){statusEl.style.color='#1a7a4a';statusEl.innerHTML='✅ <strong>Connected!</strong><br>Database has data. Real-time sync is working.';}
+        } else {
+          if(statusEl){statusEl.style.color='#1a7a4a';statusEl.innerHTML='✅ <strong>Connected!</strong><br>Database is empty. Add questions to start.';}
+        }
+      }else if(r.status === 401){
+        if(statusEl){statusEl.style.color='#c0392b';statusEl.innerHTML='❌ <strong>Permission Denied (401)</strong><br>Your Firebase Rules block public access.<br><br><strong>Fix:</strong> Go to Firebase Console → Realtime Database → Rules<br>Paste this and click Publish:<br><code style="background:#1e1e2e;color:#cdd6f4;padding:8px 12px;border-radius:6px;display:block;margin-top:10px;font-size:12px">{&quot;rules&quot;:{&quot;.read&quot;:true,&quot;.write&quot;:true}}</code>';}
+      }else{
+        const txt=await r.text();
+        if(statusEl){statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase error: '+r.status+' '+txt.substring(0,100);}
+      }
+    }catch(e){
+      if(statusEl){statusEl.style.color='#c0392b';statusEl.textContent='❌ Connection failed: '+e.message;}
+    }
+  });
+
+  // Google Sheet Settings
+  on('saveGsBtn','click',()=>{
+    const el=document.getElementById('gsUrlInput');
+    if(!el)return;
+    const v=el.value.trim();
+    if(!v){toast('Please enter Google Sheet URL','er');return;}
+    localStorage.setItem(GS_KEY,v);
+    toast('Google Sheet URL saved ✓','ok');
+  });
+  on('shareConfigBtn','click',shareConfigViaUrl);
 
   // Candidate history
   on('clearHistBtn','click',()=>{
@@ -2206,47 +2316,12 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('fsBtn','click',()=>enterFullscreen());
 
   // LAN tab
-  on('urlSettInput','focus',()=>{ const el=document.getElementById('urlSettInput');if(el&&!el.value)el.value=gurl(); });
-  on('testConnBtn','click',async()=>{
-    const url=gurl();
-    const statusEl=document.getElementById('connStatus');
-    if(!url){
-      if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ No URL set. Save URL first.';}
-      return;
-    }
-    if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing connection...';}
-    const res=await apiGet({action:'ping'});
-    if(statusEl){
-      if(res&&res.status==='ok'){
-        statusEl.style.color='#1a7a4a';
-        statusEl.textContent='✅ Connected! Server time: '+res.time;
-      } else {
-        statusEl.style.color='#c0392b';
-        statusEl.textContent='❌ Connection failed. Check URL and deployment settings.';
-      }
-    }
+
+  
   });
-  on('saveUrlSettBtn','click',()=>{
-    const urlEl=document.getElementById('urlSettInput');
-    const skEl=document.getElementById('adminSecretInput');
-    const url=(urlEl?urlEl.value.trim():'');
-    const sk=(skEl?skEl.value.trim():'');
-    if(url){ localStorage.setItem(UK,url); }
-    if(sk){ localStorage.setItem(ASK,sk); }
-    toast('URL & Secret Key saved ✓','ok');
-    // Reload settings from new URL
-    _settLoaded=false;
-    loadSettings().then(()=>{renderPwFields();});
-  });
-  on('toggleSecretKey','click',()=>togglePass('adminSecretInput'));
+
   // Pre-fill URL field when settings tab opens
-  document.getElementById('tab_sett').addEventListener('click',()=>{
-    setTimeout(()=>{
-      const el=document.getElementById('urlSettInput');
-      if(el) el.value=gurl();
-      const sk=document.getElementById('adminSecretInput');
-      if(sk) sk.value=getASK();
-    },100);
+  
   });
 
   on('tabLanBtn','click',()=>openTab('lan'));
