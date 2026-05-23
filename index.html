@@ -504,10 +504,18 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="card">
         <div class="ct">🔥 Firebase Configuration (Real-time)</div>
         <div class="cs">Questions, passwords and settings sync instantly across all computers. Free Firebase tier is enough for 50+ candidates.</div>
-        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#92400e">
-          <strong>⚠️ Important:</strong> Set your Firebase Database Rules to public read so candidates can load questions:<br>
-          <code style="background:#1e1e2e;color:#cdd6f4;padding:6px 10px;border-radius:6px;display:block;margin-top:6px;font-size:11px">{"rules":{".read":true,".write":true}}</code>
-          <span style="font-size:11px;margin-top:4px;display:block">(For school use only — not for production apps)</span>
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#b91c1c">
+          <strong>⚠️ CRITICAL — Firebase Rules Required:</strong><br><br>
+          Your current rules show <strong>"Permission denied"</strong> because authentication is required.<br><br>
+          <strong>For school/internal use, paste these rules in Firebase Console → Realtime Database → Rules:</strong><br>
+          <code style="background:#1e1e2e;color:#cdd6f4;padding:10px 14px;border-radius:8px;display:block;margin-top:10px;font-size:12px;white-space:pre;line-height:1.8">{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}</code>
+          <span style="font-size:11px;margin-top:8px;display:block">🔒 This is safe for school LAN use. All data is test questions only — no sensitive information.</span>
+          <span style="font-size:11px;margin-top:4px;display:block;color:#92400e">⏱️ Click "Publish" and wait 30 seconds for rules to apply.</span>
         </div>
         <div style="background:#e6f4ed;border:1px solid #a3d9b8;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#155724">
           <strong>💡 Multi-Computer Setup:</strong> After saving Firebase URL below, click "Copy Config Link" and open that link on all candidate computers.
@@ -515,11 +523,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <button class="btn btn-g" id="shareConfigBtn" style="margin-bottom:14px">📋 Copy Config Link for Candidate Computers</button>
         <div class="f"><label>Firebase Database URL <span style="font-size:11px;color:var(--mu)">(Required for all computers)</span></label>
           <input id="fbUrlInput" type="url" placeholder="https://your-project-default-rtdb.firebaseio.com"/></div>
-        <div class="f"><label>Firebase Database Secret <span style="font-size:11px;color:var(--mu)">(Optional — only needed if rules restrict writes)</span></label>
-          <div class="pass-wrap">
-            <input id="fbSecInput" type="password" placeholder="Leave empty if database allows public read/write"/>
-            <span class="pass-eye" id="toggleFbSec">👁</span>
-          </div></div>
+
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
           <button class="btn btn-n" id="saveFbBtn">🔥 Save Firebase Config</button>
           <button class="btn btn-o" id="testFbBtn">🔌 Test Connection</button>
@@ -868,12 +872,16 @@ async function fbGet(path){
   const url=getFB();
   if(!url){ console.warn('fbGet: no Firebase URL'); return null; }
   try{
-    // For reading, try without auth first (public rules)
     const fullUrl = url+'/'+path+'.json';
     console.log('Firebase GET:', fullUrl);
     const r=await fetch(fullUrl);
     if(!r.ok){ 
-      console.error('fbGet failed:', r.status, await r.text()); 
+      if(r.status === 401){
+        console.error('Firebase 401: Permission denied. Set rules to .read:true');
+        toast('Firebase: Permission denied! Set Database Rules to public read.','er');
+      } else {
+        console.error('fbGet failed:', r.status, await r.text()); 
+      }
       return null; 
     }
     const data = await r.json();
@@ -884,24 +892,19 @@ async function fbGet(path){
 
 async function fbSet(path, data){
   const url=getFB();
-  const sec=getFBS();
   if(!url){ toast('Firebase URL not configured — check Settings','er'); return false; }
-
-  // Try with auth token (legacy secret or new approach)
-  const authParam = sec ? '?auth='+sec : '';
-
   try{
-    const r=await fetch(url+'/'+path+'.json'+authParam,{
+    const r=await fetch(url+'/'+path+'.json',{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(data)
     });
     if(!r.ok){
-      const txt=await r.text();
-      console.error('fbSet failed',r.status,txt);
-      // If auth failed, try without auth (if rules allow public write)
-      if(r.status === 401 && !sec){
-        toast('Firebase auth failed. Check Database Rules allow writes.','er');
+      if(r.status === 401){
+        toast('Firebase 401: Set Database Rules → .write:true','er');
+      } else {
+        const txt=await r.text();
+        console.error('fbSet failed',r.status,txt);
       }
       return false;
     }
@@ -912,17 +915,19 @@ async function fbSet(path, data){
 
 async function fbPush(path, data){
   const url=getFB();
-  const sec=getFBS();
   if(!url) return false;
-  const authParam = sec ? '?auth='+sec : '';
   try{
-    const r=await fetch(url+'/'+path+'.json'+authParam,{
+    const r=await fetch(url+'/'+path+'.json',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(data)
     });
-    if(!r.ok) console.error('fbPush failed:', r.status);
-    return r.ok;
+    if(!r.ok){
+      if(r.status === 401) console.error('fbPush 401: Set rules to .write:true');
+      else console.error('fbPush failed:', r.status);
+      return false;
+    }
+    return true;
   }catch(e){ console.error('fbPush error',e); return false; }
 }
 
@@ -1046,25 +1051,80 @@ async function clearHistoryRemote(){
   return ok;
 }
 
-// ── GOOGLE SHEET (Results only) ───────────────
-async function saveToSheet(data){
+// ── GOOGLE SHEET API (Primary Backend Fallback) ───────────────
+// When Firebase fails (401), Google Sheet becomes the primary backend
+
+async function sheetApi(action, data){
   const url=getGS();
-  if(!url) return; // Sheet optional — Firebase is primary
+  if(!url){ console.warn('Sheet URL not configured'); return null; }
   try{
-    // Try POST
-    await fetch(url,{
+    const payload = JSON.stringify({action, ...data});
+    // Try POST first
+    const r = await fetch(url,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'saveResult',...data})
+      body:payload
     });
+    if(r.ok){
+      const text = await r.text();
+      try{ return JSON.parse(text); }catch(e){ return {status:'ok', raw:text}; }
+    }
+    throw new Error('POST failed: '+r.status);
   }catch(e){
     // Fallback GET
     try{
-      const enc=encodeURIComponent(JSON.stringify({action:'saveResult',...data}));
-      if(url.length+enc.length+9<7500)
-        await fetch(url+'?payload='+enc);
+      const enc=encodeURIComponent(JSON.stringify({action, ...data}));
+      if(url.length+enc.length+9<7500){
+        const r2 = await fetch(url+'?payload='+enc);
+        if(r2.ok){
+          const text = await r2.text();
+          try{ return JSON.parse(text); }catch(e2){ return {status:'ok', raw:text}; }
+        }
+      }
     }catch(e2){}
+    console.error('Sheet API error:', e);
+    return null;
   }
+}
+
+async function saveToSheet(data){
+  return await sheetApi('saveResult', data);
+}
+
+// ── GOOGLE SHEET AS PRIMARY BACKUP FOR QUESTIONS & SETTINGS ──
+async function loadQuestionsFromSheet(cat){
+  const res = await sheetApi('getQuestions', {cat});
+  if(res && res.questions){
+    console.log('Loaded '+res.questions.length+' questions from Sheet for '+cat);
+    return res.questions;
+  }
+  return [];
+}
+
+async function saveQuestionsToSheet(cat, questions){
+  return await sheetApi('saveQuestions', {cat, questions, secret:'admin'});
+}
+
+async function loadSettingsFromSheet(){
+  const res = await sheetApi('getSettings', {});
+  if(res && res.settings){
+    console.log('Settings loaded from Sheet');
+    return res.settings;
+  }
+  return null;
+}
+
+async function saveSettingsToSheet(settings){
+  return await sheetApi('saveSettings', {settings, secret:'admin'});
+}
+
+async function loadHistoryFromSheet(){
+  const res = await sheetApi('getHistory', {});
+  if(res && res.records){
+    console.log('Loaded '+res.records.length+' history records from Sheet');
+    return res.records;
+  }
+  return [];
 }
 
 // simple hash for password comparison
@@ -1163,7 +1223,6 @@ async function initAdmin(){
   const aiEl=document.getElementById('aiKeyInput');if(aiEl)aiEl.value=getAI();
   // Pre-fill Firebase fields
   const fb=document.getElementById('fbUrlInput');if(fb)fb.value=getFB();
-  const fbs=document.getElementById('fbSecInput');if(fbs)fbs.value=getFBS();
   const gs=document.getElementById('gsUrlInput');if(gs)gs.value=getGS();
 }
 
@@ -1589,8 +1648,8 @@ async function doCandLogin(){
   err.style.display='none';
 
   // CRITICAL: Check if Firebase is configured on this computer
-  if(!getFB()||!getFBS()){
-    err.innerHTML = '<strong>⚠️ This computer is not configured.</strong><br>Please ask the administrator to open the admin panel on this computer first and save the Firebase settings.<br>Or use the config link provided by the admin.';
+  if(!getFB()){
+    err.innerHTML = '<strong>⚠️ This computer is not configured.</strong><br>Please ask the administrator for the config link or enter Firebase URL in Admin Panel.<br><br><span style="font-size:12px">Admin: Click "Copy Config Link" in Settings and share with candidates.</span>';
     err.style.display='block';
     return;
   }
@@ -2127,8 +2186,8 @@ document.addEventListener('DOMContentLoaded',async()=>{
   setTimeout(()=>{
     const sysStatus=document.getElementById('sysStatus');
     if(sysStatus){
-      if(!getFB()||!getFBS()){
-        sysStatus.innerHTML = '⚠️ <strong>System Not Configured</strong><br>This computer needs Firebase setup. Please contact administrator.';
+      if(!getFB()){
+        sysStatus.innerHTML = '⚠️ <strong>System Not Configured</strong><br>This computer needs Firebase URL. Please contact administrator.';
         sysStatus.style.display='block';
       } else {
         sysStatus.innerHTML = '✅ <strong>System Ready</strong><br>Connected to Firebase. You can start your test.';
@@ -2146,8 +2205,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('toggleNewAdminPw','click',()=>togglePass('newAdminPw'));
   on('toggleConfAdminPw','click',()=>togglePass('confAdminPw'));
   on('toggleAiKey','click',()=>togglePass('aiKeyInput'));
-  on('toggleFbSec','click',()=>togglePass('fbSecInput'));
-
+  
   // Candidate login
   on('startBtn','click',doCandLogin);
   on('cl_pass','keydown',e=>{if(e.key==='Enter')doCandLogin();});
@@ -2246,29 +2304,28 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('shareConfigBtn','click',shareConfigViaUrl);
   on('saveFbBtn','click',async()=>{
     const urlEl=document.getElementById('fbUrlInput');
-    const secEl=document.getElementById('fbSecInput');
-    if(!urlEl||!secEl)return;
+    if(!urlEl)return;
     const url=urlEl.value.trim();
-    const sec=secEl.value.trim();
     if(!url){toast('Please enter Firebase Database URL','er');return;}
-    if(!sec){toast('Please enter Firebase Secret','er');return;}
     localStorage.setItem(FB_KEY,url);
-    localStorage.setItem(FB_SEC,sec);
-    toast('Firebase config saved ✓','ok');
+    toast('Firebase URL saved ✓','ok');
+    // Auto-test the connection
+    setTimeout(()=>document.getElementById('testFbBtn').click(),500);
   });
   on('testFbBtn','click',async()=>{
     const url=getFB();
-    const sec=getFBS();
     const statusEl=document.getElementById('fbStatus');
     if(!url){if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase URL not set.';}return;}
     if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing Firebase connection...';}
     try{
-      // Test without auth first (public read)
+      // Test public read (no auth)
       const r=await fetch(url+'/.json',{method:'GET'});
       if(r.ok){
         const data = await r.json();
         const msg = data ? 'Database has data ✅' : 'Connected but database is empty ⚠️';
         if(statusEl){statusEl.style.color='#1a7a4a';statusEl.textContent='✅ '+msg;}
+      }else if(r.status === 401){
+        if(statusEl){statusEl.style.color='#c0392b';statusEl.innerHTML='❌ <strong>Permission Denied (401)</strong><br>Your Firebase Rules require authentication.<br>Please set rules to public read/write for school use, or use Google Sheet as primary backend.<br><br><code style="background:#1e1e2e;color:#cdd6f4;padding:6px 10px;border-radius:6px;display:block;margin-top:8px;font-size:11px">{&quot;rules&quot;:{&quot;.read&quot;:true,&quot;.write&quot;:true}}</code>';}
       }else{
         const txt=await r.text();
         if(statusEl){statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase error: '+r.status+' '+txt.substring(0,100);}
