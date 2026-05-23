@@ -269,7 +269,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
   .rcard{box-shadow:none!important;max-width:100%!important;border-radius:0!important}
 }
 </style>
-<base target="_blank">
 </head>
 <body>
 
@@ -338,8 +337,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <button class="tnbtn g" id="tabSettBtn">⚙ Settings</button>
       <button class="tnbtn g" id="tabLanBtn">🌐 LAN Setup</button>
       <button class="tnbtn y" id="sheetModalBtn">🔗 Google Sheet</button>
-      <button class="tnbtn g" id="forceRefreshBtn" title="Refresh all data">🔄 Force Refresh</button>
-      <button class="tnbtn g" id="syncPendingBtn" title="Sync offline results">📤 Sync Pending</button>
       <button class="tnbtn g" id="adminLogoutBtn">Logout</button>
     </div>
   </nav>
@@ -502,18 +499,29 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <button class="btn btn-n" id="savePwBtn" style="margin-top:6px">Save Passwords</button>
       </div>
       <div class="card">
-        <div class="ct">Apps Script URL & Admin Secret Key</div>
-        <div class="cs">Required for all server operations. Get these from your Google Apps Script deployment.</div>
-        <div class="f"><label>Apps Script Web App URL</label>
-          <input id="urlSettInput" type="url" placeholder="https://script.google.com/macros/s/.../exec"/></div>
-        <div class="f"><label>Admin Secret Key <span style="font-size:11px;color:var(--mu)">(from setupSheets() output)</span></label>
+        <div class="ct">🔥 Firebase Configuration (Real-time)</div>
+        <div class="cs">Questions, passwords and settings sync instantly across all computers. Free Firebase tier is enough for 50+ candidates.</div>
+        <div class="f"><label>Firebase Database URL</label>
+          <input id="fbUrlInput" type="url" placeholder="https://your-project-default-rtdb.firebaseio.com"/></div>
+        <div class="f"><label>Firebase Database Secret <span style="font-size:11px;color:var(--mu)">(Project Settings → Service Accounts → Database secrets)</span></label>
           <div class="pass-wrap">
-            <input id="adminSecretInput" type="password" placeholder="ISRA-ADMIN-XXXXXXXX"/>
-            <span class="pass-eye" id="toggleSecretKey">👁</span>
+            <input id="fbSecInput" type="password" placeholder="Your Firebase database secret"/>
+            <span class="pass-eye" id="toggleFbSec">👁</span>
           </div></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
-          <button class="btn btn-n" id="saveUrlSettBtn">Save URL & Key</button>
-          <button class="btn btn-o" id="testConnBtn">🔌 Test Connection</button>
+          <button class="btn btn-n" id="saveFbBtn">🔥 Save Firebase Config</button>
+          <button class="btn btn-o" id="testFbBtn">🔌 Test Connection</button>
+        </div>
+        <div id="fbStatus" style="margin-top:10px;font-size:13px;display:none"></div>
+      </div>
+      <div class="card">
+        <div class="ct">📊 Google Sheet URL (Results Backup)</div>
+        <div class="cs">Test results also save to Google Sheet as a permanent backup record.</div>
+        <div class="f"><label>Apps Script Web App URL</label>
+          <input id="gsUrlInput" type="url" placeholder="https://script.google.com/macros/s/.../exec"/></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn btn-n" id="saveGsBtn">📊 Save Sheet URL</button>
+          <button class="btn btn-o" id="testConnBtn">🔌 Test Sheet</button>
         </div>
         <div id="connStatus" style="margin-top:10px;font-size:13px;display:none"></div>
       </div>
@@ -788,325 +796,204 @@ const CATS={
   sst_mirpur:{n:"SST",l:"Mirpurkhas",c:"#8e44ad"},
   montessori_mirpur:{n:"Montessori",l:"Mirpurkhas",c:"#2980b9"}
 };
-// ═══════════════════════════════════════════════════
-// CENTRALIZED STORAGE — Google Apps Script Backend
-// All data (questions, results, history, settings)
-// stored in Google Sheets — works across all computers
-// ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// FIREBASE REALTIME DATABASE — Central Storage
+// Questions, Settings, Passwords → Firebase
+// Results, History → Google Sheet (permanent)
+// ═══════════════════════════════════════════════
 
+// ── CONFIG (filled from Admin → Settings) ────
 const AHASH='bf6fc0a6a4d2a5a3b3f9e7e8e4a2c1d0e5b8f3a9c2d4e6f1a3b5c7d9e0f2a4b6';
-const UK='isra_url', AIK='isra_ai', APK='isra_ap', ASK='isra_sk', DK='isra_dur';
+const APK='isra_ap', AIK='isra_ai', DK='isra_dur';
+const FB_KEY='isra_fb';    // Firebase DB URL
+const FB_SEC='isra_fs';    // Firebase secret (for writes)
+const GS_KEY='isra_gs';    // Google Sheet Apps Script URL
 
-let _qCache={}, _histCache=[], _settCache={}, _settLoaded=false;
-
-// ═══════════════════════════════════════════════════
-// HARD-CODED APPS SCRIPT URL — Works on ALL computers
-// STEP 1: Deploy your Apps Script as Web App
-// STEP 2: Copy the Web App URL
-// STEP 3: Replace YOUR_SCRIPT_ID below with your actual ID
-// ═══════════════════════════════════════════════════
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbybexi3ehZcxE75U3tjeK-3_Y2P7ibJWqxoVoA_fEGtgLPEpJgd_GGz2TYn1G9u4o2KWg/execc';
-
-const gurl   = ()=>{
-  // Priority 1: Hard-coded URL (works everywhere automatically)
-  if(APPS_SCRIPT_URL && APPS_SCRIPT_URL.includes('script.google.com')){
-    return APPS_SCRIPT_URL;
-  }
-  // Priority 2: Fallback to localStorage (backward compatibility)
-  return localStorage.getItem(UK)||'';
-};
-const getAI  = ()=>localStorage.getItem(AIK)||'';
 const getAP  = ()=>localStorage.getItem(APK)||AHASH;
-const setAP  = v =>localStorage.setItem(APK,v);
-const getASK = ()=>localStorage.getItem(ASK)||'';
+const setAP  = v=>localStorage.setItem(APK,v);
+const getAI  = ()=>localStorage.getItem(AIK)||'';
+const getFB  = ()=>localStorage.getItem(FB_KEY)||'';
+const getFBS = ()=>localStorage.getItem(FB_SEC)||'';
+const getGS  = ()=>localStorage.getItem(GS_KEY)||'';
 const dur    = ()=>parseInt(_settCache.duration||localStorage.getItem(DK)||'60');
+const esc    = s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// In-memory cache
+let _qCache={}, _histCache=[], _settCache={};
 
-// ── LOW-LEVEL API ─────────────────────────────────
-// All requests encoded as GET params — avoids CORS preflight issues
-async function apiGet(params){
-  const url=gurl(); if(!url) return null;
+// ── FIREBASE REST API ─────────────────────────
+// Uses Firebase REST API — no SDK needed
+// Works from any browser, any computer
+async function fbGet(path){
+  const url=getFB();
+  if(!url) return null;
   try{
-    const qs=new URLSearchParams(params).toString();
-    const r=await fetch(url+'?'+qs);
+    const r=await fetch(url+'/'+path+'.json');
     if(!r.ok) return null;
     return await r.json();
-  }catch(e){console.error('apiGet',e);return null;}
-}
-async function apiPost(data){
-  const url=gurl(); if(!url) return null;
-  try{
-    // Encode JSON as GET param to avoid CORS preflight
-    const encoded=encodeURIComponent(JSON.stringify(data));
-    const r=await fetch(url+'?payload='+encoded);
-    if(!r.ok) return null;
-    return await r.json();
-  }catch(e){console.error('apiPost',e);return null;}
+  }catch(e){ console.error('fbGet',path,e); return null; }
 }
 
-// ── SETTINGS ─────────────────────────────────────
-async function loadSettings(){
-  if(_settLoaded) return _settCache;
-  if(!gurl()){ _settLoaded=true; return _settCache; }
-  const res=await apiGet({action:'getSettings'});
-  if(res&&!res.error){ _settCache=res; _settLoaded=true;
-    if(res.duration) localStorage.setItem(DK,res.duration); }
-  return _settCache;
-}
-async function saveSettingsRemote(obj){
-  const res=await apiPost({action:'saveSettings',secret:getASK(),settings:obj});
-  if(res&&!res.error){ Object.assign(_settCache,obj); broadcastUpdate('SETTINGS_UPDATED'); }
-  return res;
-}
-function pw(){
-  const p={}; Object.keys(CATS).forEach(k=>{ p[k]=_settCache['pw_'+k]||'isra123'; }); return p;
-}
-
-// ── QUESTIONS ─────────────────────────────────────
-function db(){ return _qCache; }
-async function loadQuestions(cat){
-  if(!gurl()){ return _qCache[cat]||[]; }
-  showLoad('Loading questions...');
+async function fbSet(path, data){
+  const url=getFB();
+  const sec=getFBS();
+  if(!url){ toast('Firebase URL not configured — check Settings','er'); return false; }
+  if(!sec){ toast('Firebase Secret not configured — check Settings','er'); return false; }
   try{
-    const res=await apiGet({action:'getQuestions',cat});
-    hideLoad();
-    if(res&&Array.isArray(res.questions)){
-      _qCache[cat]=res.questions;
-      return res.questions;
-    }
-  }catch(e){ hideLoad(); console.error('loadQuestions',e); }
-  return _qCache[cat]||[];
-}
-// Force reload — bypass cache completely
-async function reloadAllQuestions(){
-  _qCache={};
-  if(!gurl()) return;
-  showLoad('Syncing all questions from Google Sheet...');
-  for(const cat of Object.keys(CATS)){
-    try{
-      const res=await apiGet({action:'getQuestions',cat});
-      if(res&&Array.isArray(res.questions)) _qCache[cat]=res.questions;
-    }catch(e){}
-  }
-  hideLoad();
-}
-async function saveQuestionsRemote(cat,questions){
-  if(!gurl()){ toast('No Apps Script URL — check Settings','er'); return false; }
-  if(!getASK()){ toast('No Admin Secret Key — check Settings','er'); return false; }
-  showLoad('Saving to Google Sheet...');
-  try{
-    const res=await apiPost({action:'saveQuestions',secret:getASK(),cat,questions});
-    hideLoad();
-    if(res&&res.saved){
-      _qCache[cat]=questions;
-      broadcastUpdate('QUESTIONS_UPDATED',{cat});
-      toast(questions.length+' questions saved to Google Sheet ✓','ok');
-      return true;
-    } else {
-      const msg=(res&&res.error)||'Unknown error';
-      toast('Save failed: '+msg,'er');
-      console.error('saveQuestionsRemote failed',res);
+    const r=await fetch(url+'/'+path+'.json?auth='+sec,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(data)
+    });
+    if(!r.ok){
+      const txt=await r.text();
+      console.error('fbSet failed',r.status,txt);
       return false;
     }
-  }catch(e){
-    hideLoad();
-    toast('Save error: '+e.message,'er');
-    console.error('saveQuestionsRemote exception',e);
-    return false;
-  }
+    return true;
+  }catch(e){ console.error('fbSet',path,e); return false; }
 }
 
-
-// ═══════════════════════════════════════════════════
-// BATCH SAVE — Prevents timeout for large imports
-// Splits questions into chunks of 50
-// ═══════════════════════════════════════════════════
-
-const BATCH_SIZE = 50;
-
-async function saveQuestionsBatch(cat, questions){
-  if(!gurl()){ toast('No Apps Script URL — check Settings','er'); return false; }
-  if(!getASK()){ toast('No Admin Secret Key — check Settings','er'); return false; }
-
-  const totalBatches = Math.ceil(questions.length / BATCH_SIZE);
-  let totalSaved = 0;
-
-  showLoad('Uploading 0/'+questions.length+' questions...');
-
-  for(let i = 0; i < totalBatches; i++){
-    const batch = questions.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
-    let retries = 3;
-    let success = false;
-
-    while(retries > 0 && !success){
-      try{
-        const res = await apiPost({
-          action: 'batchSaveQuestions',
-          secret: getASK(),
-          cat: cat,
-          questions: batch,
-          batchIndex: i,
-          totalBatches: totalBatches
-        });
-
-        if(res && res.saved){
-          totalSaved += batch.length;
-          document.getElementById('loadMsg').textContent = 
-            'Uploading '+totalSaved+'/'+questions.length+' questions...';
-          success = true;
-        } else {
-          throw new Error(res?.error || 'Unknown error');
-        }
-      } catch(e){
-        retries--;
-        if(retries === 0){
-          hideLoad();
-          toast('Failed at batch '+(i+1)+': '+e.message, 'er');
-          return false;
-        }
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    }
-  }
-
-  hideLoad();
-  toast(totalSaved+' questions saved to Google Sheet ✓', 'ok');
-  _qCache[cat] = questions;
-  broadcastUpdate('QUESTIONS_UPDATED', { cat });
-  return true;
-}
-
-// ═══════════════════════════════════════════════════
-// CROSS-TAB SYNC — BroadcastChannel for real-time
-// ═══════════════════════════════════════════════════
-
-let bc = null;
-let lastServerTime = 0;
-
-function initBroadcastChannel(){
+async function fbPush(path, data){
+  const url=getFB();
+  const sec=getFBS();
+  if(!url||!sec) return false;
   try{
-    bc = new BroadcastChannel('isra_portal_sync');
-    bc.onmessage = (event) => {
-      const msg = event.data;
-      if(msg.type === 'QUESTIONS_UPDATED'){
-        _qCache[msg.cat] = null;
-        if(document.getElementById('pgAdmin').style.display === 'block'){
-          toast('Questions updated by another admin. Refreshing...', 'ok');
-          renderCatFilters(); renderQList(); renderDash();
-        }
-      }
-      if(msg.type === 'SETTINGS_UPDATED'){
-        _settLoaded = false; _settCache = {};
-        if(document.getElementById('pgAdmin').style.display === 'block'){
-          toast('Settings updated. Refreshing...', 'ok'); initAdmin();
-        }
-      }
-      if(msg.type === 'HISTORY_UPDATED'){
-        _histCache = [];
-        if(document.getElementById('pgAdmin').style.display === 'block') renderHist();
-      }
-      if(msg.type === 'FORCE_REFRESH'){
-        forceClearCache(); location.reload();
-      }
-    };
-  } catch(e){ console.warn('BroadcastChannel not supported:', e); }
+    const r=await fetch(url+'/'+path+'.json?auth='+sec,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(data)
+    });
+    return r.ok;
+  }catch(e){ return false; }
 }
 
-function broadcastUpdate(type, data = {}){
-  if(bc) bc.postMessage({ type, ...data, timestamp: Date.now() });
+// ── SETTINGS (Firebase) ───────────────────────
+async function loadSettings(){
+  if(!getFB()) return _settCache;
+  try{
+    const res=await fbGet('settings');
+    if(res&&typeof res==='object'){
+      _settCache=res;
+      if(res.duration) localStorage.setItem(DK,String(res.duration));
+    }
+  }catch(e){}
+  return _settCache;
 }
 
-function forceClearCache(){
-  _qCache = {}; _settCache = {}; _settLoaded = false; _histCache = [];
+async function saveSettingsRemote(obj){
+  if(!getFB()) return false;
+  // Merge with existing settings
+  const existing=await fbGet('settings')||{};
+  const merged={...existing,...obj};
+  const ok=await fbSet('settings',merged);
+  if(ok){ Object.assign(_settCache,obj); }
+  return ok;
 }
 
-// ═══════════════════════════════════════════════════
-// AUTO-POLLING — Near real-time sync (15 sec)
-// ═══════════════════════════════════════════════════
-
-let pollTimer = null;
-const POLL_INTERVAL = 15000;
-
-function startAutoRefresh(){
-  if(pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
-    if(document.getElementById('pgAdmin').style.display !== 'block') return;
-    try{
-      const res = await apiGet({action: 'ping'});
-      if(res && res.status === 'ok'){
-        const serverTime = new Date(res.time).getTime();
-        if(serverTime > lastServerTime){
-          lastServerTime = serverTime;
-          const activeTab = document.querySelector('.tab.on');
-          if(activeTab){
-            const tabId = activeTab.id.replace('tab_', '');
-            if(tabId === 'qbank'){ await renderCatFilters(); await renderQList(); }
-            else if(tabId === 'dash') await renderDash();
-            else if(tabId === 'hist') await renderHist();
-          }
-        }
-      }
-    } catch(e){ console.log('Poll error:', e); }
-  }, POLL_INTERVAL);
+function pw(){
+  const p={};
+  Object.keys(CATS).forEach(k=>{
+    p[k]=_settCache['pw_'+k]||'isra123';
+  });
+  return p;
 }
 
-function stopAutoRefresh(){
-  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+// ── QUESTIONS (Firebase) ──────────────────────
+async function loadQuestions(cat){
+  if(!getFB()) return [];
+  showLoad('Loading questions...');
+  try{
+    const res=await fbGet('questions/'+cat);
+    hideLoad();
+    if(res&&typeof res==='object'){
+      // Firebase returns object with keys, convert to array
+      const qs=Array.isArray(res)?res:Object.values(res);
+      _qCache[cat]=qs;
+      return qs;
+    }
+    _qCache[cat]=[];
+    return [];
+  }catch(e){ hideLoad(); return []; }
 }
 
-// ═══════════════════════════════════════════════════
-// LOCAL FALLBACK — Save offline, sync later
-// ═══════════════════════════════════════════════════
-
-function saveResultLocally(data){
-  const key = 'isra_pending_results';
-  const existing = JSON.parse(localStorage.getItem(key) || '[]');
-  existing.push({...data, pending: true, savedAt: new Date().toISOString()});
-  localStorage.setItem(key, JSON.stringify(existing));
-}
-
-async function syncPendingResults(){
-  const key = 'isra_pending_results';
-  const pending = JSON.parse(localStorage.getItem(key) || '[]');
-  if(!pending.length) return;
-
-  const remaining = [];
-  for(const data of pending){
-    try{
-      const res = await apiPost({
-        action: 'saveResult',
-        date: data.date, time: data.time, name: data.name, father: data.father,
-        cnic: data.cnic, test: data.test, score: data.score,
-        correct: data.correct, wrong: data.wrong, skipped: data.skipped,
-        totalMcq: data.totalMcq, timeTaken: data.timeTaken,
-        refId: data.refId || '', aiAnalysis: data.aiAnalysis || '',
-        cheatCount: data.cheatCount || 0
+async function reloadAllQuestions(){
+  if(!getFB()) return;
+  showLoad('Syncing questions from Firebase...');
+  try{
+    const res=await fbGet('questions');
+    hideLoad();
+    if(res&&typeof res==='object'){
+      Object.keys(CATS).forEach(cat=>{
+        if(res[cat]){
+          const qs=Array.isArray(res[cat])?res[cat]:Object.values(res[cat]);
+          _qCache[cat]=qs;
+        } else { _qCache[cat]=[]; }
       });
-      if(!res || !res.saved) remaining.push(data);
-    } catch(e){ remaining.push(data); }
-  }
-
-  localStorage.setItem(key, JSON.stringify(remaining));
-  if(remaining.length < pending.length){
-    toast('Synced '+(pending.length - remaining.length)+' pending results ✓', 'ok');
-  }
+    }
+  }catch(e){ hideLoad(); }
 }
 
-// ── HISTORY ───────────────────────────────────────
-function hist(){ return _histCache; }
-async function loadHistory(){
-  if(!gurl()) return [];
-  showLoad('Loading candidate history...');
-  const res=await apiGet({action:'getHistory',cat:'all',secret:getASK()});
+async function saveQuestionsRemote(cat, questions){
+  if(!getFB()){ toast('Firebase URL not set — check Settings','er'); return false; }
+  if(!getFBS()){ toast('Firebase Secret not set — check Settings','er'); return false; }
+  showLoad('Saving '+questions.length+' questions to Firebase...');
+  const ok=await fbSet('questions/'+cat, questions);
   hideLoad();
-  if(res&&res.records){ _histCache=res.records; return res.records; }
-  return [];
-}
-async function clearHistoryRemote(){
-  const res=await apiPost({action:'clearHistory',secret:getASK()});
-  if(res&&res.cleared){ _histCache=[]; broadcastUpdate('HISTORY_UPDATED'); return true; }
+  if(ok){
+    _qCache[cat]=questions;
+    toast(questions.length+' questions saved ✓','ok');
+    return true;
+  }
+  toast('Firebase save failed — check URL and Secret','er');
   return false;
+}
+
+function db(){ return _qCache; }
+
+// ── HISTORY (in-memory, loaded from Firebase) ─
+function hist(){ return _histCache; }
+
+async function loadHistory(){
+  if(!getFB()) return [];
+  showLoad('Loading history...');
+  try{
+    const res=await fbGet('history');
+    hideLoad();
+    if(res&&typeof res==='object'){
+      _histCache=Array.isArray(res)?res:Object.values(res);
+      return _histCache;
+    }
+    _histCache=[];
+    return [];
+  }catch(e){ hideLoad(); return []; }
+}
+
+async function clearHistoryRemote(){
+  const ok=await fbSet('history',[]);
+  if(ok){ _histCache=[]; }
+  return ok;
+}
+
+// ── GOOGLE SHEET (Results only) ───────────────
+async function saveToSheet(data){
+  const url=getGS();
+  if(!url) return; // Sheet optional — Firebase is primary
+  try{
+    // Try POST
+    await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'saveResult',...data})
+    });
+  }catch(e){
+    // Fallback GET
+    try{
+      const enc=encodeURIComponent(JSON.stringify({action:'saveResult',...data}));
+      if(url.length+enc.length+9<7500)
+        await fetch(url+'?payload='+enc);
+    }catch(e2){}
+  }
 }
 
 // simple hash for password comparison
@@ -1190,18 +1077,20 @@ async function saveAdminPw(){
 
 // ════════════ ADMIN INIT ════════════
 async function initAdmin(){
-  showLoad('Connecting to Google Sheet...');
+  showLoad('Connecting to Firebase...');
+  _qCache={};
   await loadSettings();
   hideLoad();
-  renderPwFields();
-  const d=document.getElementById('durInput');if(d) d.value=dur();
-  const ac=document.getElementById('aq_cat');if(ac) ac.value=curCat;
-  const ic=document.getElementById('imp_cat');if(ic) ic.value=curCat;
-  const aiEl=document.getElementById('aiKeyInput');if(aiEl) aiEl.value=getAI();
-  const askEl=document.getElementById('adminSecretInput');if(askEl) askEl.value=getASK();
-  const urlEl=document.getElementById('urlSettInput');if(urlEl) urlEl.value=gurl();
-  // Show dashboard with live data
   openTab('dash');
+  renderPwFields();
+  const d=document.getElementById('durInput');if(d)d.value=dur();
+  const ac=document.getElementById('aq_cat');if(ac)ac.value=curCat;
+  const ic=document.getElementById('imp_cat');if(ic)ic.value=curCat;
+  const aiEl=document.getElementById('aiKeyInput');if(aiEl)aiEl.value=getAI();
+  // Pre-fill Firebase fields
+  const fb=document.getElementById('fbUrlInput');if(fb)fb.value=getFB();
+  const fbs=document.getElementById('fbSecInput');if(fbs)fbs.value=getFBS();
+  const gs=document.getElementById('gsUrlInput');if(gs)gs.value=getGS();
 }
 
 function openTab(id){
@@ -1431,12 +1320,12 @@ async function confirmImport(){
         }
       }
     });
-    const ok=await saveQuestionsBatch(cat,_qCache[cat]);
+    const ok=await saveQuestionsRemote(cat,_qCache[cat]);
     if(ok) toast('Updated '+updated+' answer keys ✓','ok');
   } else {
     const before=_qCache[cat].length;
     _qCache[cat]=_qCache[cat].concat(parsedImport.questions);
-    const ok=await saveQuestionsBatch(cat,_qCache[cat]);
+    const ok=await saveQuestionsRemote(cat,_qCache[cat]);
     if(ok) toast('Imported '+(_qCache[cat].length-before)+' questions ✓','ok');
   }
   const wp=document.getElementById('wordImportPanel');
@@ -1470,7 +1359,7 @@ async function saveQuestion(){
     const marks=marksEl?parseInt(marksEl.value)||5:5;
     _qCache[cat].push({type:'desc',text,marks});
   }
-  const ok=await saveQuestionsBatch(cat,_qCache[cat]);
+  const ok=await saveQuestionsRemote(cat,_qCache[cat]);
   if(ok){
     textEl.value='';
     [0,1,2,3].forEach(i=>{const el=document.getElementById('aq_o'+i);if(el)el.value='';});
@@ -1493,24 +1382,26 @@ function renderPwFields(){
   ).join('');
 }
 async function savePw(){
+  if(!getFB()){toast('Firebase not configured — check Settings','er');return;}
   const inputs=document.querySelectorAll('#pwfields input[data-cat]');
   const settings={};
   inputs.forEach(i=>{ settings['pw_'+i.dataset.cat]=i.value.trim()||'isra123'; });
-  // Update cache
   Object.assign(_settCache, settings);
-  const res=await saveSettingsRemote(settings);
-  if(res&&!res.error) toast('Passwords saved ✓','ok');
-  else toast('Save failed. Check Admin Secret Key.','er');
+  const ok=await saveSettingsRemote(settings);
+  if(ok) toast('Passwords saved to Firebase ✓','ok');
+  else toast('Save failed — check Firebase config','er');
 }
 async function saveDur(){
-  const el=document.getElementById('durInput');
-  if(!el)return;
+  const el=document.getElementById('durInput');if(!el)return;
   const v=parseInt(el.value)||60;
   localStorage.setItem(DK,v);
   _settCache.duration=v;
-  const res=await saveSettingsRemote({duration:v});
-  if(res&&!res.error) toast('Duration saved ✓','ok');
-  else toast('Saved locally (Sheet sync failed)','ok');
+  if(getFB()){
+    const ok=await saveSettingsRemote({duration:v});
+    toast(ok?'Duration saved ✓':'Duration saved locally','ok');
+  } else {
+    toast('Duration saved locally (set Firebase to sync)','ok');
+  }
 }
 function clearAll(){
   showConfirm('Delete All Questions?','ALL questions from ALL categories will be permanently deleted.',async()=>{
@@ -1594,21 +1485,18 @@ async function renderHist(){
 // ════════════ SHEET ════════════
 function openSheetModal(){
   const el=document.getElementById('sheetUrl');
-  if(el) el.value=gurl();
+  if(el) el.value=getGS();
   openM('mSheet');
 }
 function saveSheet(){
-  const u=document.getElementById('sheetUrl').value.trim();
-  if(!u){toast('URL is required','er');return;}
-  localStorage.setItem(UK,u);
-  // Also update URL setting input in settings tab
-  const urlSett=document.getElementById('urlSettInput');
-  if(urlSett) urlSett.value=u;
+  const u=document.getElementById('sheetUrl');
+  const v=u?u.value.trim():'';
+  if(!v){toast('URL is required','er');return;}
+  localStorage.setItem(GS_KEY,v);
+  const gs=document.getElementById('gsUrlInput');
+  if(gs) gs.value=v;
   closeM('mSheet');
-  toast('Apps Script URL saved ✓','ok');
-  // Refresh settings from new URL
-  _settLoaded=false;
-  loadSettings();
+  toast('Google Sheet URL saved ✓','ok');
 }
 
 // ════════════ CANDIDATE LOGIN ════════════
@@ -1622,9 +1510,8 @@ async function doCandLogin(){
   const err=document.getElementById('loginErr');
   if(!name||!father||!cnic||!cat||!pass){err.textContent='All fields are required.';err.style.display='block';return;}
   err.style.display='none';
-  // Load settings first (to get passwords and duration)
   showLoad('Verifying...');
-  await loadSettings();
+  await loadSettings(); // load passwords from Firebase
   hideLoad();
   if(pw()[cat]!==pass){err.textContent='Incorrect test password. Please contact your administrator.';err.style.display='block';return;}
   // Force fresh questions from server (clear cache for this cat)
@@ -2098,36 +1985,38 @@ function exportExcel(){
 
 // ════════════ GOOGLE SHEET ════════════
 async function sendSheet(data){
-  const url=gurl();const bar=document.getElementById('r_savebar');
-  if(!url){
-    if(bar){bar.className='savebar sb-er';bar.textContent='⚠ URL not configured. Saved locally.';}
-    saveResultLocally(data);
-    return;
-  }
-  if(bar){bar.className='savebar sb-w';bar.textContent='⏳ Saving result to Google Sheet...';}
+  const bar=document.getElementById('r_savebar');
+  if(bar){bar.className='savebar sb-w';bar.textContent='⏳ Saving result...';}
 
-  let retries=3;
-  while(retries>0){
-    try{
-      const res=await apiPost({
-        action:'saveResult',
-        date:data.date,time:data.time,name:data.name,father:data.father,
-        cnic:data.cnic,test:data.test,score:data.score,
-        correct:data.correct,wrong:data.wrong,skipped:data.skipped,
-        totalMcq:data.totalMcq,timeTaken:data.timeTaken,
-        refId:data.refId||'',aiAnalysis:data.aiAnalysis||'',
-        cheatCount:data.cheatCount||0
-      });
-      if(bar){bar.className='savebar sb-ok';bar.textContent='✅ Result saved to Google Sheet!';}
-      return;
-    }catch(e){
-      retries--;
-      if(retries===0){
-        if(bar){bar.className='savebar sb-er';bar.textContent='❌ Saved locally (will sync when online).';}
-        saveResultLocally(data);
-      } else {
-        await new Promise(r=>setTimeout(r,2000));
-      }
+  let saved=false;
+
+  // 1. Save to Firebase (history)
+  if(getFB()){
+    const rec={
+      date:data.date,time:data.time,name:data.name,father:data.father,
+      cnic:data.cnic,test:data.test,score:data.score,
+      correct:data.correct,wrong:data.wrong,skipped:data.skipped,
+      totalMcq:data.totalMcq,timeTaken:data.timeTaken,
+      refId:data.refId||'',cheatCount:data.cheatCount||0,
+      datetime:new Date().toISOString()
+    };
+    const ok=await fbPush('history',rec);
+    if(ok) saved=true;
+  }
+
+  // 2. Save to Google Sheet (permanent backup)
+  if(getGS()){
+    await saveToSheet(data);
+    saved=true;
+  }
+
+  if(bar){
+    if(saved){
+      bar.className='savebar sb-ok';
+      bar.textContent='✅ Result saved successfully!';
+    } else {
+      bar.className='savebar sb-er';
+      bar.textContent='⚠ Configure Firebase or Google Sheet in Admin → Settings';
     }
   }
 }
@@ -2137,29 +2026,12 @@ async function sendSheet(data){
 function on(id,evt,fn){const el=document.getElementById(id);if(el)el.addEventListener(evt,fn);}
 
 document.addEventListener('DOMContentLoaded',async()=>{
-  // Initialize cross-tab sync
-  initBroadcastChannel();
-
   // Set initial admin password hash if not set
   if(!localStorage.getItem(APK)){
     const h=await hashStr('Alibaloch-IU');
     setAP(h);
   }
   goTo('pgLogin');
-
-  // Auto-polling when admin panel visible
-  const adminObserver = new MutationObserver((mutations)=>{
-    mutations.forEach((m)=>{
-      if(m.target.id==='pgAdmin'){
-        if(m.target.style.display==='block') startAutoRefresh();
-        else stopAutoRefresh();
-      }
-    });
-  });
-  adminObserver.observe(document.getElementById('pgAdmin'),{attributes:true,attributeFilter:['style']});
-
-  // Sync pending results on load
-  syncPendingResults();
 
   // Password toggles
   on('toggleCandPass','click',()=>togglePass('cl_pass'));
@@ -2264,7 +2136,9 @@ document.addEventListener('DOMContentLoaded',async()=>{
     if(!el)return;
     const k=el.value.trim();
     if(!k){toast('Please enter API key','er');return;}
-    localStorage.setItem(AIK,k);toast('API Key saved ✓','ok');
+    localStorage.setItem(AIK,k);
+    if(getFB()) saveSettingsRemote({ai_key:k});
+    toast('AI API Key saved ✓','ok');
   });
 
   // Candidate history
@@ -2376,27 +2250,6 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
   on('tabLanBtn','click',()=>openTab('lan'));
   on('tab_lan','click',()=>openTab('lan'));
-
-  // Force Refresh
-  on('forceRefreshBtn','click',async()=>{
-    showLoad('Force refreshing...');
-    forceClearCache();
-    await reloadAllQuestions();
-    await loadSettings(true);
-    await loadHistory();
-    const activeTab=document.querySelector('.tab.on');
-    if(activeTab){ const tabId=activeTab.id.replace('tab_',''); openTab(tabId); }
-    hideLoad();
-    toast('All data refreshed ✓','ok');
-    broadcastUpdate('FORCE_REFRESH');
-  });
-
-  // Sync Pending Results
-  on('syncPendingBtn','click',async()=>{
-    showLoad('Syncing pending results...');
-    await syncPendingResults();
-    hideLoad();
-  });
 
   // Test
   on('qnextBtn','click',advQ);
