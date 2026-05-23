@@ -269,6 +269,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
   .rcard{box-shadow:none!important;max-width:100%!important;border-radius:0!important}
 }
 </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -805,16 +806,20 @@ const CATS={
 // ── CONFIG (filled from Admin → Settings) ────
 const AHASH='bf6fc0a6a4d2a5a3b3f9e7e8e4a2c1d0e5b8f3a9c2d4e6f1a3b5c7d9e0f2a4b6';
 const APK='isra_ap', AIK='isra_ai', DK='isra_dur';
-const FB_KEY='isra_fb';    // Firebase DB URL
-const FB_SEC='isra_fs';    // Firebase secret (for writes)
-const GS_KEY='isra_gs';    // Google Sheet Apps Script URL
+// ════════════════════════════════════════════════════════
+// HARDCODED FIREBASE & GOOGLE SHEET CREDENTIALS
+// Yeh values sab computers ke liye same hongi
+// ════════════════════════════════════════════════════════
+const FB_URL  = 'https://isra-schools-portal-e60b2-default-rtdb.firebaseio.com';
+const FB_SEC  = 'hLbATMvpnJeqrFJGcK8zFoCfmaUR4XXODpzYNccB';
+const GS_URL  = 'https://script.google.com/macros/s/AKfycbx2jRL2f2KT09f99jaxPXe8Ev2808O7H9HxEaFfd_MOCpjrayXOOf5XxW5RcSs7k_eg/exec';
 
 const getAP  = ()=>localStorage.getItem(APK)||AHASH;
 const setAP  = v=>localStorage.setItem(APK,v);
 const getAI  = ()=>localStorage.getItem(AIK)||'';
-const getFB  = ()=>localStorage.getItem(FB_KEY)||'';
-const getFBS = ()=>localStorage.getItem(FB_SEC)||'';
-const getGS  = ()=>localStorage.getItem(GS_KEY)||'';
+const getFB  = ()=>FB_URL;   // Hardcoded — sab ko same milega
+const getFBS = ()=>FB_SEC;   // Hardcoded — sab ko same milega
+const getGS  = ()=>GS_URL;   // Hardcoded — sab ko same milega
 const dur    = ()=>parseInt(_settCache.duration||localStorage.getItem(DK)||'60');
 const esc    = s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -1087,10 +1092,10 @@ async function initAdmin(){
   const ac=document.getElementById('aq_cat');if(ac)ac.value=curCat;
   const ic=document.getElementById('imp_cat');if(ic)ic.value=curCat;
   const aiEl=document.getElementById('aiKeyInput');if(aiEl)aiEl.value=getAI();
-  // Pre-fill Firebase fields
-  const fb=document.getElementById('fbUrlInput');if(fb)fb.value=getFB();
-  const fbs=document.getElementById('fbSecInput');if(fbs)fbs.value=getFBS();
-  const gs=document.getElementById('gsUrlInput');if(gs)gs.value=getGS();
+  // Pre-fill Firebase fields (hardcoded — read-only)
+  const fb=document.getElementById('fbUrlInput');if(fb){fb.value=getFB();fb.readOnly=true;fb.style.background='#f0f0f0';}
+  const fbs=document.getElementById('fbSecInput');if(fbs){fbs.value=getFBS();fbs.readOnly=true;fbs.style.background='#f0f0f0';}
+  const gs=document.getElementById('gsUrlInput');if(gs){gs.value=getGS();gs.readOnly=true;gs.style.background='#f0f0f0';}
 }
 
 function openTab(id){
@@ -2206,16 +2211,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
   // ── Firebase Settings Buttons ──────────────────
   on('saveFbBtn','click',()=>{
-    const urlEl = document.getElementById('fbUrlInput');
-    const secEl = document.getElementById('fbSecInput');
-    const url = urlEl ? urlEl.value.trim() : '';
-    const sec = secEl ? secEl.value.trim() : '';
-    if(!url){ toast('Firebase URL is required','er'); return; }
-    if(!sec){ toast('Firebase Secret is required','er'); return; }
-    localStorage.setItem(FB_KEY, url);
-    localStorage.setItem(FB_SEC, sec);
-    toast('Firebase config saved ✓','ok');
-    loadSettings().then(()=>{ renderPwFields(); });
+    toast('Firebase already configured (hardcoded in portal) ✓','ok');
   });
 
   on('testFbBtn','click',async()=>{
@@ -2237,11 +2233,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
   // ── Google Sheet Buttons ─────────────────────
   on('saveGsBtn','click',()=>{
-    const el = document.getElementById('gsUrlInput');
-    const v = el ? el.value.trim() : '';
-    if(!v){ toast('Sheet URL is required','er'); return; }
-    localStorage.setItem(GS_KEY, v);
-    toast('Google Sheet URL saved ✓','ok');
+    toast('Google Sheet already configured (hardcoded in portal) ✓','ok');
   });
 
   on('testConnBtn','click',async()=>{
@@ -2261,12 +2253,12 @@ document.addEventListener('DOMContentLoaded',async()=>{
     }
   });
 
-  // Pre-fill fields when settings tab opens
+  // Pre-fill fields when settings tab opens (read-only now)
   on('tab_sett','click',()=>{
     setTimeout(()=>{
-      const fb  = document.getElementById('fbUrlInput');  if(fb)  fb.value  = getFB();
-      const fbs = document.getElementById('fbSecInput');  if(fbs) fbs.value = getFBS();
-      const gs  = document.getElementById('gsUrlInput');  if(gs)  gs.value  = getGS();
+      const fb  = document.getElementById('fbUrlInput');  if(fb)  { fb.value = getFB(); fb.readOnly = true; fb.style.background = '#f0f0f0'; }
+      const fbs = document.getElementById('fbSecInput');  if(fbs) { fbs.value = getFBS(); fbs.readOnly = true; fbs.style.background = '#f0f0f0'; }
+      const gs  = document.getElementById('gsUrlInput');  if(gs)  { gs.value = getGS(); gs.readOnly = true; gs.style.background = '#f0f0f0'; }
       const dur = document.getElementById('durInput');    if(dur) dur.value = _settCache.duration||localStorage.getItem(DK)||'60';
     },100);
   });
