@@ -1,328 +1,311 @@
 // ═══════════════════════════════════════════════════════════
-// ISRA SCHOOLS — APPS SCRIPT BACKEND v3 (FIXED)
-// Handles GET requests with optional 'payload' param for writes
-// Added: batchSaveQuestions endpoint for large imports
+// ISRA SCHOOLS — APPS SCRIPT BACKEND (FINAL)
+// Properly handles CORS for GitHub Pages
+// All 4 operations: questions, settings, results, history
 // ═══════════════════════════════════════════════════════════
 
-const SHEET_NAMES = {
-  RESULTS:   'Results',
-  QUESTIONS: 'Questions',
-  SETTINGS:  'Settings',
-};
+// ── CORS HEADERS ─────────────────────────────────────────
+function setCORS(output) {
+  return output
+    .setHeader('Access-Control-Allow-Origin', '*')
+    .setHeader('Access-Control-Allow-Methods', 'GET, POST')
+    .setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
 
-// ── MAIN ENTRY POINTS ─────────────────────────────────────
+function jsonResponse(obj) {
+  const out = ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+  return out;
+}
 
+// ── MAIN GET HANDLER ─────────────────────────────────────
 function doGet(e) {
-  const params = e.parameter || {};
+  const p = e.parameter || {};
 
-  const output = ContentService.createTextOutput();
-
-  if (params.payload) {
+  // Write via GET (payload param) for CORS compatibility
+  if (p.payload) {
     try {
-      const data = JSON.parse(decodeURIComponent(params.payload));
-      const result = handleWrite(data);
-      output.setContent(JSON.stringify(result));
+      const data = JSON.parse(decodeURIComponent(p.payload));
+      return jsonResponse(handleAction(data));
     } catch(err) {
-      output.setContent(JSON.stringify({error: 'Invalid payload: ' + err.toString()}));
-    }
-  } else {
-    const action = params.action || '';
-    try {
-      let result;
-      if (action === 'ping')        result = {status:'ok', time:new Date().toISOString()};
-      else if (action === 'getSettings') result = getSettings();
-      else if (action === 'getQuestions') result = getQuestions(params.cat);
-      else if (action === 'getHistory') {
-        if (!verifySecret(params.secret)) result = {error:'Unauthorized'};
-        else result = getHistory(params.cat);
-      }
-      else result = {error:'Unknown action: ' + action};
-      output.setContent(JSON.stringify(result));
-    } catch(err) {
-      output.setContent(JSON.stringify({error: err.toString()}));
+      return jsonResponse({error: 'Bad payload: ' + err.message});
     }
   }
 
-  output.setMimeType(ContentService.MimeType.JSON);
-  return output;
+  // Read operations
+  try {
+    const action = p.action || '';
+    if (action === 'ping')
+      return jsonResponse({status:'ok', time: new Date().toISOString()});
+    if (action === 'getSettings')
+      return jsonResponse(getSettings());
+    if (action === 'getQuestions')
+      return jsonResponse(getQuestions(p.cat || ''));
+    if (action === 'getHistory') {
+      if (!checkSecret(p.secret))
+        return jsonResponse({error:'Unauthorized'});
+      return jsonResponse(getHistory());
+    }
+    return jsonResponse({error: 'Unknown action: ' + action});
+  } catch(err) {
+    return jsonResponse({error: err.message});
+  }
 }
 
+// ── MAIN POST HANDLER ────────────────────────────────────
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
-    const result = handleWrite(data);
-    return jsonOk(result);
+    return jsonResponse(handleAction(data));
   } catch(err) {
-    return jsonOk({error: err.toString()});
+    return jsonResponse({error: err.message});
   }
 }
 
-function handleWrite(data) {
+// ── ACTION ROUTER ─────────────────────────────────────────
+function handleAction(data) {
   const action = data.action || '';
   try {
-    if (action === 'saveResult')    return saveResult(data);
+    if (action === 'saveResult')
+      return saveResult(data);
     if (action === 'saveQuestions') {
-      if (!verifySecret(data.secret)) return {error:'Unauthorized — wrong secret key'};
+      if (!checkSecret(data.secret)) return {error:'Unauthorized'};
       return saveQuestions(data.cat, data.questions);
     }
     if (action === 'saveSettings') {
-      if (!verifySecret(data.secret)) return {error:'Unauthorized — wrong secret key'};
+      if (!checkSecret(data.secret)) return {error:'Unauthorized'};
       return saveSettings(data.settings);
     }
     if (action === 'clearHistory') {
-      if (!verifySecret(data.secret)) return {error:'Unauthorized — wrong secret key'};
+      if (!checkSecret(data.secret)) return {error:'Unauthorized'};
       return clearHistory();
     }
-    // NEW: Batch save for large imports (prevents timeout)
-    if (action === 'batchSaveQuestions') {
-      if (!verifySecret(data.secret)) return {error:'Unauthorized — wrong secret key'};
-      return batchSaveQuestions(data.cat, data.questions, data.batchIndex, data.totalBatches);
-    }
-    return {error:'Unknown write action: ' + action};
+    return {error: 'Unknown action: ' + action};
   } catch(err) {
-    return {error: err.toString()};
+    return {error: err.message};
   }
 }
 
-// ── HELPERS ───────────────────────────────────────────────
-
-function jsonOk(obj) {
-  const output = ContentService.createTextOutput(JSON.stringify(obj));
-  output.setMimeType(ContentService.MimeType.JSON);
-  return output;
+// ── SHEET HELPERS ─────────────────────────────────────────
+function ss() {
+  return SpreadsheetApp.getActiveSpreadsheet();
 }
 
-function getSheet(name) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(name);
+function getOrCreateSheet(name, headers) {
+  let sheet = ss().getSheetByName(name);
   if (!sheet) {
-    sheet = ss.insertSheet(name);
-    const headers = {
-      Results:   ['Date','Time','Name','Father Name','CNIC','Test','Score%',
-                  'Correct','Wrong','Skipped','Total MCQ','Time Taken',
-                  'Ref ID','AI Analysis','Cheats'],
-      Questions: ['Category','Type','Question','Option A','Option B','Option C','Option D','Correct Index','Marks'],
-      Settings:  ['Key','Value'],
-    };
-    if (headers[name]) {
-      sheet.appendRow(headers[name]);
-      sheet.getRange(1,1,1,headers[name].length)
-        .setBackground('#0D2B5E').setFontColor('#FFFFFF').setFontWeight('bold');
-    }
-    // Seed default settings
-    if (name === 'Settings') {
-      const secret = 'ISRA-' + Math.random().toString(36).substring(2,10).toUpperCase();
-      const defaults = [
-        ['duration','60'],
-        ['admin_secret', secret],
-        ['pw_sindhi_hyd','isra123'],
-        ['pw_math_hyd','isra123'],
-        ['pw_english_hyd','isra123'],
-        ['pw_math_mirpur','isra123'],
-        ['pw_sst_mirpur','isra123'],
-        ['pw_montessori_mirpur','isra123'],
-      ];
-      defaults.forEach(row => sheet.appendRow(row));
+    sheet = ss().insertSheet(name);
+    if (headers && headers.length) {
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length)
+        .setBackground('#0D2B5E')
+        .setFontColor('#FFFFFF')
+        .setFontWeight('bold');
+      sheet.setFrozenRows(1);
     }
   }
   return sheet;
 }
 
-function getAllSettingsObj() {
-  const sheet = getSheet('Settings');
+// ── SETTINGS ─────────────────────────────────────────────
+function getAllSettingsMap() {
+  const sheet = getOrCreateSheet('Settings', ['Key','Value']);
   const rows = sheet.getDataRange().getValues();
-  const obj = {};
+  const map = {};
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0]) obj[String(rows[i][0])] = String(rows[i][1]);
+    if (rows[i][0]) map[String(rows[i][0])] = String(rows[i][1] || '');
   }
-  return obj;
+  return map;
 }
 
-function verifySecret(secret) {
-  const settings = getAllSettingsObj();
-  return secret && secret === settings['admin_secret'];
+function checkSecret(secret) {
+  const map = getAllSettingsMap();
+  return secret && map['admin_secret'] && secret === map['admin_secret'];
 }
-
-// ── SETTINGS ──────────────────────────────────────────────
 
 function getSettings() {
-  const s = getAllSettingsObj();
-  // Don't expose admin_secret to public
+  const s = getAllSettingsMap();
   const safe = Object.assign({}, s);
-  delete safe.admin_secret;
+  delete safe.admin_secret; // never expose secret
   return safe;
 }
 
 function saveSettings(settings) {
-  const sheet = getSheet('Settings');
+  if (!settings) return {error: 'No settings provided'};
+  const sheet = getOrCreateSheet('Settings', ['Key','Value']);
   const rows = sheet.getDataRange().getValues();
-  const rowMap = {};
+  // Build row index map
+  const idx = {};
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0]) rowMap[String(rows[i][0])] = i + 1; // 1-indexed row number
+    if (rows[i][0]) idx[String(rows[i][0])] = i + 1;
   }
-  Object.entries(settings).forEach(([key, value]) => {
-    if (rowMap[key] !== undefined) {
-      sheet.getRange(rowMap[key], 2).setValue(value);
+  Object.entries(settings).forEach(([k, v]) => {
+    if (idx[k]) {
+      sheet.getRange(idx[k], 2).setValue(v);
     } else {
-      sheet.appendRow([key, value]);
+      sheet.appendRow([k, v]);
     }
   });
   return {saved: true};
 }
 
 // ── QUESTIONS ─────────────────────────────────────────────
-
 function getQuestions(cat) {
-  const sheet = getSheet('Questions');
+  const sheet = getOrCreateSheet('Questions',
+    ['Category','Type','Question','Option A','Option B','Option C','Option D','Correct','Marks']);
   const rows = sheet.getDataRange().getValues();
   const questions = [];
   for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row[0] || !row[2]) continue;
-    if (cat && String(row[0]) !== String(cat)) continue;
-    if (String(row[1]) === 'mcq') {
+    const r = rows[i];
+    if (!r[0] || !r[2]) continue;
+    if (cat && String(r[0]) !== String(cat)) continue;
+    if (String(r[1]) === 'mcq') {
       questions.push({
         type: 'mcq',
-        text: String(row[2]),
-        options: [String(row[3]||''), String(row[4]||''), String(row[5]||''), String(row[6]||'')],
-        correct: parseInt(row[7]) || 0,
+        text: String(r[2]),
+        options: [String(r[3]||''), String(r[4]||''), String(r[5]||''), String(r[6]||'')],
+        correct: parseInt(r[7]) || 0,
         marks: 1
       });
     } else {
       questions.push({
         type: 'desc',
-        text: String(row[2]),
-        marks: parseInt(row[7]) || 5
+        text: String(r[2]),
+        marks: parseInt(r[7]) || 5
       });
     }
   }
-  return {questions, count: questions.length};
+  return {questions: questions, count: questions.length};
 }
 
 function saveQuestions(cat, questions) {
-  if (!cat || !questions) return {error: 'Missing cat or questions'};
-  const sheet = getSheet('Questions');
-  const rows = sheet.getDataRange().getValues();
+  if (!cat) return {error: 'Category required'};
+  if (!Array.isArray(questions)) return {error: 'Questions must be an array'};
 
-  // Delete existing rows for this category (from bottom up)
+  const sheet = getOrCreateSheet('Questions',
+    ['Category','Type','Question','Option A','Option B','Option C','Option D','Correct','Marks']);
+
+  // Delete existing rows for this category (bottom up)
+  const rows = sheet.getDataRange().getValues();
   const toDelete = [];
   for (let i = rows.length - 1; i >= 1; i--) {
     if (String(rows[i][0]) === String(cat)) toDelete.push(i + 1);
   }
   toDelete.forEach(r => sheet.deleteRow(r));
 
-  // Append new questions
+  // Add new questions
   questions.forEach(q => {
     if (q.type === 'mcq') {
       sheet.appendRow([
-        cat, 'mcq', q.text,
+        cat, 'mcq', q.text || '',
         (q.options||[])[0]||'', (q.options||[])[1]||'',
         (q.options||[])[2]||'', (q.options||[])[3]||'',
-        q.correct||0, 1
+        q.correct || 0, 1
       ]);
     } else {
-      sheet.appendRow([cat, 'desc', q.text, '','','','', q.marks||5, q.marks||5]);
-    }
-  });
-  return {saved: true, count: questions.length, cat};
-}
-
-// NEW FUNCTION: Batch save for large imports (prevents timeout)
-function batchSaveQuestions(cat, questions, batchIndex, totalBatches) {
-  if (!cat || !questions) return {error: 'Missing cat or questions'};
-  const sheet = getSheet('Questions');
-
-  // Only delete existing rows on first batch
-  if (batchIndex === 0) {
-    const rows = sheet.getDataRange().getValues();
-    const toDelete = [];
-    for (let i = rows.length - 1; i >= 1; i--) {
-      if (String(rows[i][0]) === String(cat)) toDelete.push(i + 1);
-    }
-    toDelete.forEach(r => sheet.deleteRow(r));
-  }
-
-  // Append this batch
-  questions.forEach(q => {
-    if (q.type === 'mcq') {
-      sheet.appendRow([
-        cat, 'mcq', q.text,
-        (q.options||[])[0]||'', (q.options||[])[1]||'',
-        (q.options||[])[2]||'', (q.options||[])[3]||'',
-        q.correct||0, 1
-      ]);
-    } else {
-      sheet.appendRow([cat, 'desc', q.text, '','','','', q.marks||5, q.marks||5]);
+      sheet.appendRow([cat, 'desc', q.text||'', '','','','', q.marks||5, q.marks||5]);
     }
   });
 
-  return {
-    saved: true, 
-    count: questions.length, 
-    cat: cat, 
-    batch: batchIndex + 1, 
-    total: totalBatches
-  };
+  return {saved: true, count: questions.length, cat: cat};
 }
 
 // ── RESULTS ───────────────────────────────────────────────
-
 function saveResult(data) {
-  const sheet = getSheet('Results');
+  const sheet = getOrCreateSheet('Results', [
+    'Date','Time','Name','Father Name','CNIC','Test Category',
+    'Score %','Correct','Wrong','Skipped','Total MCQ',
+    'Time Taken','Reference ID','AI Analysis','Cheat Count'
+  ]);
   sheet.appendRow([
-    data.date||'', data.time||'', data.name||'', data.father||'',
-    data.cnic||'', data.test||'',
-    (data.score||'0')+'%', data.correct||0, data.wrong||0,
-    data.skipped||0, data.totalMcq||0, data.timeTaken||'',
-    data.refId||'', data.aiAnalysis||'', data.cheatCount||0
+    data.date||'', data.time||'',
+    data.name||'', data.father||'', data.cnic||'',
+    data.test||'', (data.score||0)+'%',
+    data.correct||0, data.wrong||0, data.skipped||0,
+    data.totalMcq||0, data.timeTaken||'',
+    data.refId||'', data.aiAnalysis||'',
+    data.cheatCount||0
   ]);
   return {saved: true};
 }
 
-function getHistory(cat) {
-  const sheet = getSheet('Results');
+// ── HISTORY ───────────────────────────────────────────────
+function getHistory() {
+  const sheet = getOrCreateSheet('Results', [
+    'Date','Time','Name','Father Name','CNIC','Test Category',
+    'Score %','Correct','Wrong','Skipped','Total MCQ',
+    'Time Taken','Reference ID','AI Analysis','Cheat Count'
+  ]);
   if (sheet.getLastRow() < 2) return {records:[], count:0};
   const rows = sheet.getDataRange().getValues();
   const records = [];
   for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row[2]) continue; // no name
-    if (cat && cat !== 'all' && row[5] && !String(row[5]).includes(cat)) continue;
+    const r = rows[i];
+    if (!r[2]) continue;
     records.push({
-      date:String(row[0]), time:String(row[1]),
-      name:String(row[2]), father:String(row[3]),
-      cnic:String(row[4]), test:String(row[5]),
-      score:String(row[6]), correct:row[7], wrong:row[8],
-      skipped:row[9], totalMcq:row[10],
-      timeTaken:String(row[11]), refId:String(row[12]),
-      cheatCount:row[14]||0
+      date:      String(r[0]||''),
+      time:      String(r[1]||''),
+      name:      String(r[2]||''),
+      father:    String(r[3]||''),
+      cnic:      String(r[4]||''),
+      test:      String(r[5]||''),
+      score:     String(r[6]||'0%').replace('%',''),
+      correct:   r[7]||0,
+      wrong:     r[8]||0,
+      skipped:   r[9]||0,
+      totalMcq:  r[10]||0,
+      timeTaken: String(r[11]||''),
+      refId:     String(r[12]||''),
+      cheatCount:r[14]||0
     });
   }
-  return {records, count: records.length};
+  return {records: records, count: records.length};
 }
 
 function clearHistory() {
-  const sheet = getSheet('Results');
+  const sheet = getOrCreateSheet('Results');
   if (sheet.getLastRow() > 1) {
     sheet.deleteRows(2, sheet.getLastRow() - 1);
   }
   return {cleared: true};
 }
 
-// ── ONE-TIME SETUP ─────────────────────────────────────────
-
+// ── ONE-TIME SETUP ────────────────────────────────────────
 function setupSheets() {
-  getSheet('Results');
-  getSheet('Questions');
-  getSheet('Settings');
+  getOrCreateSheet('Settings',   ['Key','Value']);
+  getOrCreateSheet('Questions',  ['Category','Type','Question','Option A','Option B','Option C','Option D','Correct','Marks']);
+  getOrCreateSheet('Results',    ['Date','Time','Name','Father Name','CNIC','Test Category','Score %','Correct','Wrong','Skipped','Total MCQ','Time Taken','Reference ID','AI Analysis','Cheat Count']);
 
-  const secret = getAllSettingsObj()['admin_secret'];
+  // Set defaults if not already set
+  const map = getAllSettingsMap();
+  const defaults = {
+    duration:               '60',
+    pw_sindhi_hyd:          'isra123',
+    pw_math_hyd:            'isra123',
+    pw_english_hyd:         'isra123',
+    pw_math_mirpur:         'isra123',
+    pw_sst_mirpur:          'isra123',
+    pw_montessori_mirpur:   'isra123',
+  };
+  if (!map['admin_secret']) {
+    defaults['admin_secret'] = 'ISRA-' + Math.random().toString(36).substring(2,10).toUpperCase();
+  }
+  Object.entries(defaults).forEach(([k,v]) => {
+    if (!map[k]) {
+      const sheet = ss().getSheetByName('Settings');
+      sheet.appendRow([k, v]);
+    }
+  });
+
+  const secret = getAllSettingsMap()['admin_secret'];
   SpreadsheetApp.getUi().alert(
-    'ISRA Portal Setup Complete!\n\n' +
-    'Your Admin Secret Key:\n\n' +
-    secret + '\n\n' +
-    'Copy this key and paste it in:\n' +
-    'Portal → Admin Panel → Settings → Admin Secret Key\n\n' +
-    '3 sheets created: Results, Questions, Settings'
+    '✅ ISRA Portal Setup Complete!\n\n' +
+    'Admin Secret Key:\n' + secret + '\n\n' +
+    '→ Copy this key\n' +
+    '→ Open portal → Admin Panel → Settings\n' +
+    '→ Paste in "Admin Secret Key" field\n' +
+    '→ Click Save URL & Key\n\n' +
+    '3 sheets created: Settings, Questions, Results'
   );
 }
