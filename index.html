@@ -280,7 +280,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
     <h1>ISRA Schools</h1>
     <p class="lsub">Online Teacher Recruitment Test Portal</p>
     <div class="notice">⚠️ Once the test starts you cannot go back to any previous question. Each MCQ has a 60-second timer. Make sure you are ready before starting.</div>
-    <div id="sysStatus" style="display:none;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:10px 13px;font-size:12px;margin-bottom:14px;text-align:center"></div>
     <div class="ebox" id="loginErr"></div>
     <div class="f"><label>Full Name *</label><input id="cl_name" type="text" placeholder="Enter your full name" autocomplete="off"/></div>
     <div class="f"><label>Father's Name *</label><input id="cl_father" type="text" placeholder="Enter father's full name" autocomplete="off"/></div>
@@ -382,9 +381,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-teal" id="importWordBtn">📄 Import from Word (.docx)</button>
           <button class="btn btn-g" id="toggleAddBtn">＋ Add Manually</button>
-          <button class="btn btn-o btn-sm" id="syncSheetBtn">🔄 Sync from Firebase</button>
+          <button class="btn btn-o btn-sm" id="syncSheetBtn">🔄 Sync from Sheet</button>
           <button class="btn btn-o btn-sm" id="importJsonBtn">📂 Import JSON</button>
-          <button class="btn btn-r btn-sm" id="clearCacheBtn">🗑 Clear Cache</button>
         </div>
       </div>
       <div class="cfrow" id="cfrow"></div>
@@ -504,26 +502,13 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
       <div class="card">
         <div class="ct">🔥 Firebase Configuration (Real-time)</div>
         <div class="cs">Questions, passwords and settings sync instantly across all computers. Free Firebase tier is enough for 50+ candidates.</div>
-        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#b91c1c">
-          <strong>⚠️ CRITICAL — Firebase Rules Required:</strong><br><br>
-          Your current rules show <strong>"Permission denied"</strong> because authentication is required.<br><br>
-          <strong>For school/internal use, paste these rules in Firebase Console → Realtime Database → Rules:</strong><br>
-          <code style="background:#1e1e2e;color:#cdd6f4;padding:10px 14px;border-radius:8px;display:block;margin-top:10px;font-size:12px;white-space:pre;line-height:1.8">{
-  "rules": {
-    ".read": true,
-    ".write": true
-  }
-}</code>
-          <span style="font-size:11px;margin-top:8px;display:block">🔒 This is safe for school LAN use. All data is test questions only — no sensitive information.</span>
-          <span style="font-size:11px;margin-top:4px;display:block;color:#92400e">⏱️ Click "Publish" and wait 30 seconds for rules to apply.</span>
-        </div>
-        <div style="background:#e6f4ed;border:1px solid #a3d9b8;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#155724">
-          <strong>💡 Multi-Computer Setup:</strong> After saving Firebase URL below, click "Copy Config Link" and open that link on all candidate computers.
-        </div>
-        <button class="btn btn-g" id="shareConfigBtn" style="margin-bottom:14px">📋 Copy Config Link for Candidate Computers</button>
-        <div class="f"><label>Firebase Database URL <span style="font-size:11px;color:var(--mu)">(Required for all computers)</span></label>
+        <div class="f"><label>Firebase Database URL</label>
           <input id="fbUrlInput" type="url" placeholder="https://your-project-default-rtdb.firebaseio.com"/></div>
-
+        <div class="f"><label>Firebase Database Secret <span style="font-size:11px;color:var(--mu)">(Project Settings → Service Accounts → Database secrets)</span></label>
+          <div class="pass-wrap">
+            <input id="fbSecInput" type="password" placeholder="Your Firebase database secret"/>
+            <span class="pass-eye" id="toggleFbSec">👁</span>
+          </div></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
           <button class="btn btn-n" id="saveFbBtn">🔥 Save Firebase Config</button>
           <button class="btn btn-o" id="testFbBtn">🔌 Test Connection</button>
@@ -831,34 +816,6 @@ const getAI  = ()=>localStorage.getItem(AIK)||'';
 const getFB  = ()=>localStorage.getItem(FB_KEY)||'';
 const getFBS = ()=>localStorage.getItem(FB_SEC)||'';
 const getGS  = ()=>localStorage.getItem(GS_KEY)||'';
-
-// Share Firebase config via URL hash for easy multi-system setup
-function shareConfigViaUrl(){
-  const fb=getFB(), fbs=getFBS(), gs=getGS();
-  if(!fb){toast('No Firebase config to share','er');return;}
-  const cfg = btoa(JSON.stringify({fb,fbs,gs}));
-  const url = window.location.origin + window.location.pathname + '#' + cfg;
-  navigator.clipboard.writeText(url).then(()=>{
-    toast('Config link copied! Open this URL on other computers.','ok');
-  }).catch(()=>{
-    prompt('Copy this URL and open on other computers:', url);
-  });
-}
-
-// Load config from URL hash if present
-function loadConfigFromUrl(){
-  const hash = window.location.hash.slice(1);
-  if(!hash) return false;
-  try{
-    const cfg = JSON.parse(atob(hash));
-    if(cfg.fb) localStorage.setItem(FB_KEY, cfg.fb);
-    if(cfg.fbs) localStorage.setItem(FB_SEC, cfg.fbs);
-    if(cfg.gs) localStorage.setItem(GS_KEY, cfg.gs);
-    console.log('Config loaded from URL hash');
-    toast('Firebase config auto-loaded from URL!','ok');
-    return true;
-  }catch(e){ return false; }
-}
 const dur    = ()=>parseInt(_settCache.duration||localStorage.getItem(DK)||'60');
 const esc    = s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -870,65 +827,46 @@ let _qCache={}, _histCache=[], _settCache={};
 // Works from any browser, any computer
 async function fbGet(path){
   const url=getFB();
-  if(!url){ console.warn('fbGet: no Firebase URL'); return null; }
+  if(!url) return null;
   try{
-    const fullUrl = url+'/'+path+'.json';
-    console.log('Firebase GET:', fullUrl);
-    const r=await fetch(fullUrl);
-    if(!r.ok){ 
-      if(r.status === 401){
-        console.error('Firebase 401: Permission denied. Set rules to .read:true');
-        toast('Firebase: Permission denied! Set Database Rules to public read.','er');
-      } else {
-        console.error('fbGet failed:', r.status, await r.text()); 
-      }
-      return null; 
-    }
-    const data = await r.json();
-    console.log('Firebase GET success:', path, data === null ? 'NULL (empty)' : (Array.isArray(data)?'array['+data.length+']':(typeof data === 'object'?'object['+Object.keys(data).length+' keys]':'primitive')));
-    return data;
-  }catch(e){ console.error('fbGet error',path,e); return null; }
+    const r=await fetch(url+'/'+path+'.json');
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){ console.error('fbGet',path,e); return null; }
 }
 
 async function fbSet(path, data){
   const url=getFB();
+  const sec=getFBS();
   if(!url){ toast('Firebase URL not configured — check Settings','er'); return false; }
+  if(!sec){ toast('Firebase Secret not configured — check Settings','er'); return false; }
   try{
-    const r=await fetch(url+'/'+path+'.json',{
+    const r=await fetch(url+'/'+path+'.json?auth='+sec,{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(data)
     });
     if(!r.ok){
-      if(r.status === 401){
-        toast('Firebase 401: Set Database Rules → .write:true','er');
-      } else {
-        const txt=await r.text();
-        console.error('fbSet failed',r.status,txt);
-      }
+      const txt=await r.text();
+      console.error('fbSet failed',r.status,txt);
       return false;
     }
-    console.log('fbSet success:', path);
     return true;
-  }catch(e){ console.error('fbSet error',path,e); return false; }
+  }catch(e){ console.error('fbSet',path,e); return false; }
 }
 
 async function fbPush(path, data){
   const url=getFB();
-  if(!url) return false;
+  const sec=getFBS();
+  if(!url||!sec) return false;
   try{
-    const r=await fetch(url+'/'+path+'.json',{
+    const r=await fetch(url+'/'+path+'.json?auth='+sec,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(data)
     });
-    if(!r.ok){
-      if(r.status === 401) console.error('fbPush 401: Set rules to .write:true');
-      else console.error('fbPush failed:', r.status);
-      return false;
-    }
-    return true;
-  }catch(e){ console.error('fbPush error',e); return false; }
+    return r.ok;
+  }catch(e){ return false; }
 }
 
 // ── SETTINGS (Firebase) ───────────────────────
@@ -939,11 +877,8 @@ async function loadSettings(){
     if(res&&typeof res==='object'){
       _settCache=res;
       if(res.duration) localStorage.setItem(DK,String(res.duration));
-      console.log('Settings loaded from Firebase:', Object.keys(res));
-    } else {
-      console.warn('No settings found in Firebase');
     }
-  }catch(e){ console.error('Settings load error:',e); }
+  }catch(e){}
   return _settCache;
 }
 
@@ -962,14 +897,13 @@ function pw(){
   Object.keys(CATS).forEach(k=>{
     p[k]=_settCache['pw_'+k]||'isra123';
   });
-  console.log('Passwords loaded:', Object.keys(p).map(k=>k+'='+(p[k]?'***':'empty')).join(', '));
   return p;
 }
 
 // ── QUESTIONS (Firebase) ──────────────────────
 async function loadQuestions(cat){
-  if(!getFB()){ toast('Firebase not configured — contact admin','er'); return []; }
-  showLoad('Loading questions from server...');
+  if(!getFB()) return [];
+  showLoad('Loading questions...');
   try{
     const res=await fbGet('questions/'+cat);
     hideLoad();
@@ -977,25 +911,16 @@ async function loadQuestions(cat){
       // Firebase returns object with keys, convert to array
       const qs=Array.isArray(res)?res:Object.values(res);
       _qCache[cat]=qs;
-      console.log('Loaded '+qs.length+' questions for '+cat+' from Firebase');
       return qs;
     }
-    console.warn('No questions found for '+cat+' in Firebase');
     _qCache[cat]=[];
     return [];
-  }catch(e){ 
-    hideLoad(); 
-    console.error('Firebase load error:',e);
-    toast('Failed to load questions from server','er');
-    return []; 
-  }
+  }catch(e){ hideLoad(); return []; }
 }
 
 async function reloadAllQuestions(){
   if(!getFB()) return;
   showLoad('Syncing questions from Firebase...');
-  // Clear cache before reload to ensure fresh data
-  _qCache = {};
   try{
     const res=await fbGet('questions');
     hideLoad();
@@ -1051,80 +976,25 @@ async function clearHistoryRemote(){
   return ok;
 }
 
-// ── GOOGLE SHEET API (Primary Backend Fallback) ───────────────
-// When Firebase fails (401), Google Sheet becomes the primary backend
-
-async function sheetApi(action, data){
+// ── GOOGLE SHEET (Results only) ───────────────
+async function saveToSheet(data){
   const url=getGS();
-  if(!url){ console.warn('Sheet URL not configured'); return null; }
+  if(!url) return; // Sheet optional — Firebase is primary
   try{
-    const payload = JSON.stringify({action, ...data});
-    // Try POST first
-    const r = await fetch(url,{
+    // Try POST
+    await fetch(url,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:payload
+      body:JSON.stringify({action:'saveResult',...data})
     });
-    if(r.ok){
-      const text = await r.text();
-      try{ return JSON.parse(text); }catch(e){ return {status:'ok', raw:text}; }
-    }
-    throw new Error('POST failed: '+r.status);
   }catch(e){
     // Fallback GET
     try{
-      const enc=encodeURIComponent(JSON.stringify({action, ...data}));
-      if(url.length+enc.length+9<7500){
-        const r2 = await fetch(url+'?payload='+enc);
-        if(r2.ok){
-          const text = await r2.text();
-          try{ return JSON.parse(text); }catch(e2){ return {status:'ok', raw:text}; }
-        }
-      }
+      const enc=encodeURIComponent(JSON.stringify({action:'saveResult',...data}));
+      if(url.length+enc.length+9<7500)
+        await fetch(url+'?payload='+enc);
     }catch(e2){}
-    console.error('Sheet API error:', e);
-    return null;
   }
-}
-
-async function saveToSheet(data){
-  return await sheetApi('saveResult', data);
-}
-
-// ── GOOGLE SHEET AS PRIMARY BACKUP FOR QUESTIONS & SETTINGS ──
-async function loadQuestionsFromSheet(cat){
-  const res = await sheetApi('getQuestions', {cat});
-  if(res && res.questions){
-    console.log('Loaded '+res.questions.length+' questions from Sheet for '+cat);
-    return res.questions;
-  }
-  return [];
-}
-
-async function saveQuestionsToSheet(cat, questions){
-  return await sheetApi('saveQuestions', {cat, questions, secret:'admin'});
-}
-
-async function loadSettingsFromSheet(){
-  const res = await sheetApi('getSettings', {});
-  if(res && res.settings){
-    console.log('Settings loaded from Sheet');
-    return res.settings;
-  }
-  return null;
-}
-
-async function saveSettingsToSheet(settings){
-  return await sheetApi('saveSettings', {settings, secret:'admin'});
-}
-
-async function loadHistoryFromSheet(){
-  const res = await sheetApi('getHistory', {});
-  if(res && res.records){
-    console.log('Loaded '+res.records.length+' history records from Sheet');
-    return res.records;
-  }
-  return [];
 }
 
 // simple hash for password comparison
@@ -1209,10 +1079,7 @@ async function saveAdminPw(){
 // ════════════ ADMIN INIT ════════════
 async function initAdmin(){
   showLoad('Connecting to Firebase...');
-  // Clear ALL caches to force fresh load from Firebase
   _qCache={};
-  _settCache={};
-  _histCache=[];
   await loadSettings();
   hideLoad();
   openTab('dash');
@@ -1223,6 +1090,7 @@ async function initAdmin(){
   const aiEl=document.getElementById('aiKeyInput');if(aiEl)aiEl.value=getAI();
   // Pre-fill Firebase fields
   const fb=document.getElementById('fbUrlInput');if(fb)fb.value=getFB();
+  const fbs=document.getElementById('fbSecInput');if(fbs)fbs.value=getFBS();
   const gs=document.getElementById('gsUrlInput');if(gs)gs.value=getGS();
 }
 
@@ -1266,7 +1134,7 @@ function renderChecklist(){
 // ════════════ DASHBOARD ════════════
 async function renderDash(){
   // Always reload fresh from server
-  if(getGS()) await reloadAllQuestions();
+  if(gurl()) await reloadAllQuestions();
   const d=_qCache;let tot=0,mcq=0,des=0;
   Object.values(d).forEach(a=>{if(!Array.isArray(a))return;tot+=a.length;a.forEach(q=>q.type==='mcq'?mcq++:des++);});
   const st=document.getElementById('st_tot');if(st)st.textContent=tot;
@@ -1292,7 +1160,7 @@ async function renderDash(){
 async function renderCatFilters(){
   const row=document.getElementById('cfrow');if(!row)return;row.innerHTML='';
   // Show live counts from server
-  if(getGS()) await reloadAllQuestions();
+  if(gurl()) await reloadAllQuestions();
   Object.entries(CATS).forEach(([k,c])=>{
     const cnt=(_qCache[k]||[]).length;
     const btn=document.createElement('button');
@@ -1305,10 +1173,10 @@ async function renderCatFilters(){
 
 // ════════════ QUESTION LIST ════════════
 async function renderQList(){
-  if(getGS()){ await loadQuestions(curCat); } // always fresh
+  if(gurl()){ await loadQuestions(curCat); } // always fresh
   const qs=_qCache[curCat]||[];const w=document.getElementById('qlistwrap');
   if(!qs.length){
-    const urlSet=getGS()?'':'<br><br><strong>⚠ Set Apps Script URL in Settings first</strong>';
+    const urlSet=gurl()?'':'<br><br><strong>⚠ Set Apps Script URL in Settings first</strong>';
     w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions in this category</div><div class="es">Import from Word, add manually, or check Google Sheet.'+urlSet+'</div></div>';
     return;
   }
@@ -1437,8 +1305,8 @@ async function confirmImport(){
   if(!parsedImport||(!parsedImport.questions&&!parsedImport.map)){
     toast('No data to import','er'); return;
   }
-  if(!getGS()){toast('Set Apps Script URL in Settings first','er');return;}
-  if(!getFBS()){toast('Set Admin Secret Key in Settings first','er');return;}
+  if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
+  if(!getASK()){toast('Set Admin Secret Key in Settings first','er');return;}
   if(!_qCache[cat]) _qCache[cat]=[];
 
   if(parsedImport.type==='answers'){
@@ -1521,10 +1389,7 @@ async function savePw(){
   inputs.forEach(i=>{ settings['pw_'+i.dataset.cat]=i.value.trim()||'isra123'; });
   Object.assign(_settCache, settings);
   const ok=await saveSettingsRemote(settings);
-  if(ok){
-    toast('Passwords saved to Firebase ✓','ok');
-    console.log('Passwords updated:', Object.keys(settings));
-  }
+  if(ok) toast('Passwords saved to Firebase ✓','ok');
   else toast('Save failed — check Firebase config','er');
 }
 async function saveDur(){
@@ -1646,21 +1511,12 @@ async function doCandLogin(){
   const err=document.getElementById('loginErr');
   if(!name||!father||!cnic||!cat||!pass){err.textContent='All fields are required.';err.style.display='block';return;}
   err.style.display='none';
-
-  // CRITICAL: Check if Firebase is configured on this computer
-  if(!getFB()){
-    err.innerHTML = '<strong>⚠️ This computer is not configured.</strong><br>Please ask the administrator for the config link or enter Firebase URL in Admin Panel.<br><br><span style="font-size:12px">Admin: Click "Copy Config Link" in Settings and share with candidates.</span>';
-    err.style.display='block';
-    return;
-  }
   showLoad('Verifying...');
-  // ALWAYS load fresh settings from Firebase - critical for multi-system sync
-  _settCache = {}; // Clear local settings cache
-  await loadSettings(); 
+  await loadSettings(); // load passwords from Firebase
   hideLoad();
   if(pw()[cat]!==pass){err.textContent='Incorrect test password. Please contact your administrator.';err.style.display='block';return;}
-  // ALWAYS load fresh from Firebase - never rely on local cache
-  _qCache[cat] = null; // Clear in-memory cache
+  // Force fresh questions from server (clear cache for this cat)
+  delete _qCache[cat];
   const qs=await loadQuestions(cat);
   if(!qs.length){err.textContent='No questions available for this category. Please contact the administrator.';err.style.display='block';return;}
   err.style.display='none';
@@ -1949,7 +1805,6 @@ function transliterate(text){
 }
 
 async function generatePDF(r){
-  if(!window.jspdf||!window.jspdf.jsPDF){console.error('jsPDF not loaded');return;}
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const W=210,M=15;let y=M;
@@ -1966,14 +1821,14 @@ async function generatePDF(r){
   // Note for Sindhi/RTL tests
   const hasSindhi=r.questions&&r.questions.some(q=>/[\u0600-\u06FF]/.test(q.text||''));
   if(hasSindhi){
-    doc.setFillColor(255,248,230);doc.rect(M,y,W-M*2,8,'F');
+    doc.setFillColor(255,248,230);doc.roundedRect(M,y,W-M*2,8,2,2,'F');
     doc.setTextColor(146,100,14);doc.setFontSize(7);doc.setFont('helvetica','italic');
     doc.text('Note: Sindhi/Urdu text has been transliterated to Latin script for PDF compatibility.',M+3,y+5);
     y+=12;
   }
 
   // Score box
-  doc.setFillColor(240,244,250);doc.rect(M,y,W-M*2,24,'F');
+  doc.setFillColor(240,244,250);doc.roundedRect(M,y,W-M*2,24,3,3,'F');
   doc.setTextColor(13,43,94);doc.setFontSize(22);doc.setFont('helvetica','bold');
   doc.text(r.score+'%',W/2,y+12,{align:'center'});
   doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(90,107,138);
@@ -1985,7 +1840,7 @@ async function generatePDF(r){
   // Stats row
   const stats=[['Correct',r.correct,'#1a7a4a'],['Wrong',r.wrong,'#c0392b'],['Skipped',r.skipped,'#5A6B8A'],['Total MCQ',r.totalMcq,'#0D2B5E']];
   stats.forEach((s,i)=>{
-    const x=M+i*(W-M*2)/4;doc.setFillColor(255,255,255);doc.rect(x,y,(W-M*2)/4-3,16,'F');
+    const x=M+i*(W-M*2)/4;doc.setFillColor(255,255,255);doc.roundedRect(x,y,(W-M*2)/4-3,16,2,2,'F');
     const rgb=hexToRgb(s[2]);doc.setTextColor(rgb[0],rgb[1],rgb[2]);doc.setFontSize(13);doc.setFont('helvetica','bold');doc.text(String(s[1]),x+(W-M*2)/8-1.5,y+9,{align:'center'});
     doc.setTextColor(90,107,138);doc.setFontSize(7);doc.setFont('helvetica','normal');doc.text(s[0],x+(W-M*2)/8-1.5,y+14,{align:'center'});
   });
@@ -2016,7 +1871,7 @@ async function generatePDF(r){
     doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(13,43,94);
     doc.text(`Q${i+1}`,M,y+5);
     doc.setFillColor(q.type==='mcq'?238:255,q.type==='mcq'?243:248,q.type==='mcq'?252:236);
-    doc.rect(M+8,y+1,q.type==='mcq'?8:16,4,'F');
+    doc.roundedRect(M+8,y+1,q.type==='mcq'?8:16,4,1,1,'F');
     doc.setTextColor(q.type==='mcq'?13:154,q.type==='mcq'?43:98,q.type==='mcq'?94:0);
     doc.setFontSize(6);doc.text(q.type==='mcq'?'MCQ':'DESC',M+9,y+4.5);
 
@@ -2172,9 +2027,6 @@ async function sendSheet(data){
 function on(id,evt,fn){const el=document.getElementById(id);if(el)el.addEventListener(evt,fn);}
 
 document.addEventListener('DOMContentLoaded',async()=>{
-  // Try to load Firebase config from URL hash (for multi-system setup)
-  loadConfigFromUrl();
-
   // Set initial admin password hash if not set
   if(!localStorage.getItem(APK)){
     const h=await hashStr('Alibaloch-IU');
@@ -2182,30 +2034,13 @@ document.addEventListener('DOMContentLoaded',async()=>{
   }
   goTo('pgLogin');
 
-  // Check system status and show warning if Firebase not configured
-  setTimeout(()=>{
-    const sysStatus=document.getElementById('sysStatus');
-    if(sysStatus){
-      if(!getFB()){
-        sysStatus.innerHTML = '⚠️ <strong>System Not Configured</strong><br>This computer needs Firebase URL. Please contact administrator.';
-        sysStatus.style.display='block';
-      } else {
-        sysStatus.innerHTML = '✅ <strong>System Ready</strong><br>Connected to Firebase. You can start your test.';
-        sysStatus.style.display='block';
-        sysStatus.style.background='#e6f4ed';
-        sysStatus.style.borderColor='#a3d9b8';
-        sysStatus.style.color='#155724';
-      }
-    }
-  }, 500);
-
   // Password toggles
   on('toggleCandPass','click',()=>togglePass('cl_pass'));
   on('toggleAdminPass','click',()=>togglePass('apwd'));
   on('toggleNewAdminPw','click',()=>togglePass('newAdminPw'));
   on('toggleConfAdminPw','click',()=>togglePass('confAdminPw'));
   on('toggleAiKey','click',()=>togglePass('aiKeyInput'));
-  
+
   // Candidate login
   on('startBtn','click',doCandLogin);
   on('cl_pass','keydown',e=>{if(e.key==='Enter')doCandLogin();});
@@ -2241,9 +2076,15 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('qa_export','click',exportJSON);
 
   // Word import
-
   on('syncSheetBtn','click',async()=>{
-    if(!getGS()){toast('Set Apps Script URL in Settings first','er');return;}
+    _qCache={};
+    await renderCatFilters();
+    await renderQList();
+    renderDash();
+    toast('Synced from Google Sheet ✓','ok');
+  });
+  on('syncSheetBtn','click',async()=>{
+    if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
     toast('Syncing from Google Sheet...','');
     _qCache={};
     await reloadAllQuestions();
@@ -2300,51 +2141,6 @@ document.addEventListener('DOMContentLoaded',async()=>{
     if(getFB()) saveSettingsRemote({ai_key:k});
     toast('AI API Key saved ✓','ok');
   });
-  // Firebase Settings
-  on('shareConfigBtn','click',shareConfigViaUrl);
-  on('saveFbBtn','click',async()=>{
-    const urlEl=document.getElementById('fbUrlInput');
-    if(!urlEl)return;
-    const url=urlEl.value.trim();
-    if(!url){toast('Please enter Firebase Database URL','er');return;}
-    localStorage.setItem(FB_KEY,url);
-    toast('Firebase URL saved ✓','ok');
-    // Auto-test the connection
-    setTimeout(()=>document.getElementById('testFbBtn').click(),500);
-  });
-  on('testFbBtn','click',async()=>{
-    const url=getFB();
-    const statusEl=document.getElementById('fbStatus');
-    if(!url){if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase URL not set.';}return;}
-    if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing Firebase connection...';}
-    try{
-      // Test public read (no auth)
-      const r=await fetch(url+'/.json',{method:'GET'});
-      if(r.ok){
-        const data = await r.json();
-        const msg = data ? 'Database has data ✅' : 'Connected but database is empty ⚠️';
-        if(statusEl){statusEl.style.color='#1a7a4a';statusEl.textContent='✅ '+msg;}
-      }else if(r.status === 401){
-        if(statusEl){statusEl.style.color='#c0392b';statusEl.innerHTML='❌ <strong>Permission Denied (401)</strong><br>Your Firebase Rules require authentication.<br>Please set rules to public read/write for school use, or use Google Sheet as primary backend.<br><br><code style="background:#1e1e2e;color:#cdd6f4;padding:6px 10px;border-radius:6px;display:block;margin-top:8px;font-size:11px">{&quot;rules&quot;:{&quot;.read&quot;:true,&quot;.write&quot;:true}}</code>';}
-      }else{
-        const txt=await r.text();
-        if(statusEl){statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase error: '+r.status+' '+txt.substring(0,100);}
-      }
-    }catch(e){
-      if(statusEl){statusEl.style.color='#c0392b';statusEl.textContent='❌ Connection failed: '+e.message;}
-    }
-  });
-
-  // Google Sheet Settings
-  on('saveGsBtn','click',()=>{
-    const el=document.getElementById('gsUrlInput');
-    if(!el)return;
-    const v=el.value.trim();
-    if(!v){toast('Please enter Google Sheet URL','er');return;}
-    localStorage.setItem(GS_KEY,v);
-    toast('Google Sheet URL saved ✓','ok');
-  });
-
 
   // Candidate history
   on('clearHistBtn','click',()=>{
@@ -2372,11 +2168,6 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
   // Import JSON
   on('importJsonBtn','click',()=>document.getElementById('jsonFile').click());
-  on('clearCacheBtn','click',()=>{
-    _qCache={}; _settCache={}; _histCache=[];
-    toast('All caches cleared. Refreshing...','ok');
-    setTimeout(()=>{renderCatFilters();renderQList();renderDash();},500);
-  });
   on('jsonFile','change',e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
@@ -2415,16 +2206,16 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('fsBtn','click',()=>enterFullscreen());
 
   // LAN tab
-  on('urlSettInput','focus',()=>{ const el=document.getElementById('urlSettInput');if(el&&!el.value)el.value=getGS(); });
+  on('urlSettInput','focus',()=>{ const el=document.getElementById('urlSettInput');if(el&&!el.value)el.value=gurl(); });
   on('testConnBtn','click',async()=>{
-    const url=getGS();
+    const url=gurl();
     const statusEl=document.getElementById('connStatus');
     if(!url){
       if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ No URL set. Save URL first.';}
       return;
     }
     if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing connection...';}
-    const res=await fetch(getGS()+'?action=ping').then(r=>r.json()).catch(e=>null);
+    const res=await apiGet({action:'ping'});
     if(statusEl){
       if(res&&res.status==='ok'){
         statusEl.style.color='#1a7a4a';
@@ -2440,7 +2231,8 @@ document.addEventListener('DOMContentLoaded',async()=>{
     const skEl=document.getElementById('adminSecretInput');
     const url=(urlEl?urlEl.value.trim():'');
     const sk=(skEl?skEl.value.trim():'');
-    if(url){ localStorage.setItem(GS_KEY,url); }
+    if(url){ localStorage.setItem(UK,url); }
+    if(sk){ localStorage.setItem(ASK,sk); }
     toast('URL & Secret Key saved ✓','ok');
     // Reload settings from new URL
     _settLoaded=false;
@@ -2451,9 +2243,9 @@ document.addEventListener('DOMContentLoaded',async()=>{
   document.getElementById('tab_sett').addEventListener('click',()=>{
     setTimeout(()=>{
       const el=document.getElementById('urlSettInput');
-      if(el) el.value=getGS();
+      if(el) el.value=gurl();
       const sk=document.getElementById('adminSecretInput');
-      if(sk) sk.value=getFBS();
+      if(sk) sk.value=getASK();
     },100);
   });
 
