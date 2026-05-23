@@ -269,6 +269,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
   .rcard{box-shadow:none!important;max-width:100%!important;border-radius:0!important}
 }
 </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -1133,7 +1134,7 @@ function renderChecklist(){
 // ════════════ DASHBOARD ════════════
 async function renderDash(){
   // Always reload fresh from server
-  if(gurl()) await reloadAllQuestions();
+  if(getGS()) await reloadAllQuestions();
   const d=_qCache;let tot=0,mcq=0,des=0;
   Object.values(d).forEach(a=>{if(!Array.isArray(a))return;tot+=a.length;a.forEach(q=>q.type==='mcq'?mcq++:des++);});
   const st=document.getElementById('st_tot');if(st)st.textContent=tot;
@@ -1159,7 +1160,7 @@ async function renderDash(){
 async function renderCatFilters(){
   const row=document.getElementById('cfrow');if(!row)return;row.innerHTML='';
   // Show live counts from server
-  if(gurl()) await reloadAllQuestions();
+  if(getGS()) await reloadAllQuestions();
   Object.entries(CATS).forEach(([k,c])=>{
     const cnt=(_qCache[k]||[]).length;
     const btn=document.createElement('button');
@@ -1172,10 +1173,10 @@ async function renderCatFilters(){
 
 // ════════════ QUESTION LIST ════════════
 async function renderQList(){
-  if(gurl()){ await loadQuestions(curCat); } // always fresh
+  if(getGS()){ await loadQuestions(curCat); } // always fresh
   const qs=_qCache[curCat]||[];const w=document.getElementById('qlistwrap');
   if(!qs.length){
-    const urlSet=gurl()?'':'<br><br><strong>⚠ Set Apps Script URL in Settings first</strong>';
+    const urlSet=getGS()?'':'<br><br><strong>⚠ Set Apps Script URL in Settings first</strong>';
     w.innerHTML='<div class="empty"><div class="ei">📋</div><div class="et">No questions in this category</div><div class="es">Import from Word, add manually, or check Google Sheet.'+urlSet+'</div></div>';
     return;
   }
@@ -1304,8 +1305,8 @@ async function confirmImport(){
   if(!parsedImport||(!parsedImport.questions&&!parsedImport.map)){
     toast('No data to import','er'); return;
   }
-  if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
-  if(!getASK()){toast('Set Admin Secret Key in Settings first','er');return;}
+  if(!getGS()){toast('Set Apps Script URL in Settings first','er');return;}
+  if(!getFBS()){toast('Set Admin Secret Key in Settings first','er');return;}
   if(!_qCache[cat]) _qCache[cat]=[];
 
   if(parsedImport.type==='answers'){
@@ -1804,6 +1805,7 @@ function transliterate(text){
 }
 
 async function generatePDF(r){
+  if(!window.jspdf||!window.jspdf.jsPDF){console.error('jsPDF not loaded');return;}
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const W=210,M=15;let y=M;
@@ -1820,14 +1822,14 @@ async function generatePDF(r){
   // Note for Sindhi/RTL tests
   const hasSindhi=r.questions&&r.questions.some(q=>/[\u0600-\u06FF]/.test(q.text||''));
   if(hasSindhi){
-    doc.setFillColor(255,248,230);doc.roundedRect(M,y,W-M*2,8,2,2,'F');
+    doc.setFillColor(255,248,230);doc.rect(M,y,W-M*2,8,'F');
     doc.setTextColor(146,100,14);doc.setFontSize(7);doc.setFont('helvetica','italic');
     doc.text('Note: Sindhi/Urdu text has been transliterated to Latin script for PDF compatibility.',M+3,y+5);
     y+=12;
   }
 
   // Score box
-  doc.setFillColor(240,244,250);doc.roundedRect(M,y,W-M*2,24,3,3,'F');
+  doc.setFillColor(240,244,250);doc.rect(M,y,W-M*2,24,'F');
   doc.setTextColor(13,43,94);doc.setFontSize(22);doc.setFont('helvetica','bold');
   doc.text(r.score+'%',W/2,y+12,{align:'center'});
   doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(90,107,138);
@@ -1839,7 +1841,7 @@ async function generatePDF(r){
   // Stats row
   const stats=[['Correct',r.correct,'#1a7a4a'],['Wrong',r.wrong,'#c0392b'],['Skipped',r.skipped,'#5A6B8A'],['Total MCQ',r.totalMcq,'#0D2B5E']];
   stats.forEach((s,i)=>{
-    const x=M+i*(W-M*2)/4;doc.setFillColor(255,255,255);doc.roundedRect(x,y,(W-M*2)/4-3,16,2,2,'F');
+    const x=M+i*(W-M*2)/4;doc.setFillColor(255,255,255);doc.rect(x,y,(W-M*2)/4-3,16,'F');
     const rgb=hexToRgb(s[2]);doc.setTextColor(rgb[0],rgb[1],rgb[2]);doc.setFontSize(13);doc.setFont('helvetica','bold');doc.text(String(s[1]),x+(W-M*2)/8-1.5,y+9,{align:'center'});
     doc.setTextColor(90,107,138);doc.setFontSize(7);doc.setFont('helvetica','normal');doc.text(s[0],x+(W-M*2)/8-1.5,y+14,{align:'center'});
   });
@@ -1870,7 +1872,7 @@ async function generatePDF(r){
     doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(13,43,94);
     doc.text(`Q${i+1}`,M,y+5);
     doc.setFillColor(q.type==='mcq'?238:255,q.type==='mcq'?243:248,q.type==='mcq'?252:236);
-    doc.roundedRect(M+8,y+1,q.type==='mcq'?8:16,4,1,1,'F');
+    doc.rect(M+8,y+1,q.type==='mcq'?8:16,4,'F');
     doc.setTextColor(q.type==='mcq'?13:154,q.type==='mcq'?43:98,q.type==='mcq'?94:0);
     doc.setFontSize(6);doc.text(q.type==='mcq'?'MCQ':'DESC',M+9,y+4.5);
 
@@ -2083,7 +2085,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
     toast('Synced from Google Sheet ✓','ok');
   });
   on('syncSheetBtn','click',async()=>{
-    if(!gurl()){toast('Set Apps Script URL in Settings first','er');return;}
+    if(!getGS()){toast('Set Apps Script URL in Settings first','er');return;}
     toast('Syncing from Google Sheet...','');
     _qCache={};
     await reloadAllQuestions();
@@ -2140,6 +2142,49 @@ document.addEventListener('DOMContentLoaded',async()=>{
     if(getFB()) saveSettingsRemote({ai_key:k});
     toast('AI API Key saved ✓','ok');
   });
+  // Firebase Settings
+  on('saveFbBtn','click',async()=>{
+    const urlEl=document.getElementById('fbUrlInput');
+    const secEl=document.getElementById('fbSecInput');
+    if(!urlEl||!secEl)return;
+    const url=urlEl.value.trim();
+    const sec=secEl.value.trim();
+    if(!url){toast('Please enter Firebase Database URL','er');return;}
+    if(!sec){toast('Please enter Firebase Secret','er');return;}
+    localStorage.setItem(FB_KEY,url);
+    localStorage.setItem(FB_SEC,sec);
+    toast('Firebase config saved ✓','ok');
+  });
+  on('testFbBtn','click',async()=>{
+    const url=getFB();
+    const sec=getFBS();
+    const statusEl=document.getElementById('fbStatus');
+    if(!url){if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase URL not set.';}return;}
+    if(!sec){if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase Secret not set.';}return;}
+    if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing Firebase connection...';}
+    try{
+      const r=await fetch(url+'/.json?auth='+sec,{method:'GET'});
+      if(r.ok){
+        if(statusEl){statusEl.style.color='#1a7a4a';statusEl.textContent='✅ Firebase connected successfully!';}
+      }else{
+        const txt=await r.text();
+        if(statusEl){statusEl.style.color='#c0392b';statusEl.textContent='❌ Firebase error: '+r.status+' '+txt.substring(0,100);}
+      }
+    }catch(e){
+      if(statusEl){statusEl.style.color='#c0392b';statusEl.textContent='❌ Connection failed: '+e.message;}
+    }
+  });
+
+  // Google Sheet Settings
+  on('saveGsBtn','click',()=>{
+    const el=document.getElementById('gsUrlInput');
+    if(!el)return;
+    const v=el.value.trim();
+    if(!v){toast('Please enter Google Sheet URL','er');return;}
+    localStorage.setItem(GS_KEY,v);
+    toast('Google Sheet URL saved ✓','ok');
+  });
+
 
   // Candidate history
   on('clearHistBtn','click',()=>{
@@ -2205,16 +2250,16 @@ document.addEventListener('DOMContentLoaded',async()=>{
   on('fsBtn','click',()=>enterFullscreen());
 
   // LAN tab
-  on('urlSettInput','focus',()=>{ const el=document.getElementById('urlSettInput');if(el&&!el.value)el.value=gurl(); });
+  on('urlSettInput','focus',()=>{ const el=document.getElementById('urlSettInput');if(el&&!el.value)el.value=getGS(); });
   on('testConnBtn','click',async()=>{
-    const url=gurl();
+    const url=getGS();
     const statusEl=document.getElementById('connStatus');
     if(!url){
       if(statusEl){statusEl.style.display='block';statusEl.style.color='#c0392b';statusEl.textContent='❌ No URL set. Save URL first.';}
       return;
     }
     if(statusEl){statusEl.style.display='block';statusEl.style.color='#92400e';statusEl.textContent='⏳ Testing connection...';}
-    const res=await apiGet({action:'ping'});
+    const res=await fetch(getGS()+'?action=ping').then(r=>r.json()).catch(e=>null);
     if(statusEl){
       if(res&&res.status==='ok'){
         statusEl.style.color='#1a7a4a';
@@ -2230,8 +2275,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
     const skEl=document.getElementById('adminSecretInput');
     const url=(urlEl?urlEl.value.trim():'');
     const sk=(skEl?skEl.value.trim():'');
-    if(url){ localStorage.setItem(UK,url); }
-    if(sk){ localStorage.setItem(ASK,sk); }
+    if(url){ localStorage.setItem(GS_KEY,url); }
     toast('URL & Secret Key saved ✓','ok');
     // Reload settings from new URL
     _settLoaded=false;
@@ -2242,9 +2286,9 @@ document.addEventListener('DOMContentLoaded',async()=>{
   document.getElementById('tab_sett').addEventListener('click',()=>{
     setTimeout(()=>{
       const el=document.getElementById('urlSettInput');
-      if(el) el.value=gurl();
+      if(el) el.value=getGS();
       const sk=document.getElementById('adminSecretInput');
-      if(sk) sk.value=getASK();
+      if(sk) sk.value=getFBS();
     },100);
   });
 
