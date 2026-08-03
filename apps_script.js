@@ -287,6 +287,8 @@ function setupSheets() {
     pw_math_mirpur:         'isra123',
     pw_sst_mirpur:          'isra123',
     pw_montessori_mirpur:   'isra123',
+    pw_chemistry_hyd:       'isra123',
+    pw_urdu_hyd:            'isra123',
   };
   if (!map['admin_secret']) {
     defaults['admin_secret'] = 'ISRA-' + Math.random().toString(36).substring(2,10).toUpperCase();

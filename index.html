@@ -293,6 +293,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <option value="math_mirpur">4. Mathematics — Mirpurkhas</option>
         <option value="sst_mirpur">5. SST — Mirpurkhas</option>
         <option value="montessori_mirpur">6. Montessori — Mirpurkhas</option>
+        <option value="chemistry_hyd">7. Chemistry — Hyderabad</option>
+        <option value="urdu_hyd">8. Urdu — Hyderabad</option>
       </select></div>
     <div class="f"><label>Test Password *</label>
       <div class="pass-wrap">
@@ -354,7 +356,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
     <div class="tabpane on" id="tp_dash">
       <div class="strow">
         <div class="stbox"><div class="stv" id="st_tot">0</div><div class="stl">Total Questions</div></div>
-        <div class="stbox"><div class="stv">6</div><div class="stl">Categories</div></div>
+        <div class="stbox"><div class="stv">8</div><div class="stl">Categories</div></div>
         <div class="stbox"><div class="stv" id="st_mcq">0</div><div class="stl">MCQ</div></div>
         <div class="stbox"><div class="stv" id="st_des">0</div><div class="stl">Descriptive</div></div>
       </div>
@@ -399,6 +401,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
               <option value="math_mirpur">Mathematics — Mirpurkhas</option>
               <option value="sst_mirpur">SST — Mirpurkhas</option>
               <option value="montessori_mirpur">Montessori — Mirpurkhas</option>
+              <option value="chemistry_hyd">Chemistry — Hyderabad</option>
+              <option value="urdu_hyd">Urdu — Hyderabad</option>
             </select></div>
           <div class="f"><label>Import Type</label>
             <select id="imp_type">
@@ -435,6 +439,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
               <option value="math_mirpur">Mathematics — Mirpurkhas</option>
               <option value="sst_mirpur">SST — Mirpurkhas</option>
               <option value="montessori_mirpur">Montessori — Mirpurkhas</option>
+              <option value="chemistry_hyd">Chemistry — Hyderabad</option>
+              <option value="urdu_hyd">Urdu — Hyderabad</option>
             </select></div>
           <div class="f"><label>Question Type</label>
             <select id="aq_type">
@@ -795,7 +801,9 @@ const CATS={
   english_hyd:{n:"English",l:"Hyderabad",c:"#c0392b"},
   math_mirpur:{n:"Mathematics",l:"Mirpurkhas",c:"#e67e22"},
   sst_mirpur:{n:"SST",l:"Mirpurkhas",c:"#8e44ad"},
-  montessori_mirpur:{n:"Montessori",l:"Mirpurkhas",c:"#2980b9"}
+  montessori_mirpur:{n:"Montessori",l:"Mirpurkhas",c:"#2980b9"},
+  chemistry_hyd:{n:"Chemistry",l:"Hyderabad",c:"#16a085"},
+  urdu_hyd:{n:"Urdu",l:"Hyderabad",c:"#d35400"}
 };
 // ═══════════════════════════════════════════════
 // FIREBASE REALTIME DATABASE — Central Storage
@@ -1119,7 +1127,7 @@ function renderChecklist(){
   const el=document.getElementById('checklistDiv');
   if(!el||el.innerHTML.trim())return;
   const items=[
-    ['Questions uploaded to all 6 categories','Check Admin Panel → Question Bank tab'],
+    ['Questions uploaded to all 8 categories','Check Admin Panel → Question Bank tab'],
     ['Test passwords set for each category','Admin → Settings → Test Passwords'],
     ['Google Sheet URL configured','Admin → Google Sheet button (top nav)'],
     ['Test portal accessible from candidate computers','Open browser, type the server URL'],

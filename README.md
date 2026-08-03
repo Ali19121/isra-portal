@@ -9,7 +9,7 @@ https://YOUR-GITHUB-USERNAME.github.io/isra-portal/
 ```
 
 ## Features
-- 6 test categories (Sindhi, Maths, English — Hyderabad & Mirpurkhas)
+- 8 test categories (Sindhi, Maths, English, Chemistry, Urdu — Hyderabad; Maths, SST, Montessori — Mirpurkhas)
 - MCQ + Descriptive questions
 - 60-minute countdown timer
 - Auto-fullscreen + anti-cheat detection
