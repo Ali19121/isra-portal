@@ -320,6 +320,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
         <option value="chemistry_hyd">7. Chemistry — Hyderabad</option>
         <option value="urdu_hyd">8. Urdu — Hyderabad</option>
         <option value="physics_hyd">9. Physics — Hyderabad</option>
+        <option value="islamiat_lecturer_iu">10. Islamiat Lecturer — IU</option>
       </select></div>
     <div class="f"><label>Test Password *</label>
       <div class="pass-wrap">
@@ -381,7 +382,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
     <div class="tabpane on" id="tp_dash">
       <div class="strow">
         <div class="stbox"><div class="stv" id="st_tot">0</div><div class="stl">Total Questions</div></div>
-        <div class="stbox"><div class="stv">9</div><div class="stl">Categories</div></div>
+        <div class="stbox"><div class="stv" id="st_cat">9</div><div class="stl">Categories</div></div>
         <div class="stbox"><div class="stv" id="st_mcq">0</div><div class="stl">MCQ</div></div>
         <div class="stbox"><div class="stv" id="st_des">0</div><div class="stl">Descriptive</div></div>
       </div>
@@ -429,6 +430,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
               <option value="chemistry_hyd">Chemistry — Hyderabad</option>
               <option value="urdu_hyd">Urdu — Hyderabad</option>
               <option value="physics_hyd">Physics — Hyderabad</option>
+              <option value="islamiat_lecturer_iu">Islamiat Lecturer — IU</option>
             </select></div>
           <div class="f"><label>Import Type</label>
             <select id="imp_type">
@@ -468,6 +470,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
               <option value="chemistry_hyd">Chemistry — Hyderabad</option>
               <option value="urdu_hyd">Urdu — Hyderabad</option>
               <option value="physics_hyd">Physics — Hyderabad</option>
+              <option value="islamiat_lecturer_iu">Islamiat Lecturer — IU</option>
             </select></div>
           <div class="f"><label>Question Type</label>
             <select id="aq_type">
@@ -840,7 +843,8 @@ const CATS={
   montessori_mirpur:{n:"Montessori",l:"Mirpurkhas",c:"#2980b9"},
   chemistry_hyd:{n:"Chemistry",l:"Hyderabad",c:"#16a085"},
   urdu_hyd:{n:"Urdu",l:"Hyderabad",c:"#d35400"},
-  physics_hyd:{n:"Physics",l:"Hyderabad",c:"#7f8c8d"}
+  physics_hyd:{n:"Physics",l:"Hyderabad",c:"#7f8c8d"},
+  islamiat_lecturer_iu:{n:"Islamiat Lecturer",l:"IU",c:"#1abc9c"}
 };
 // ═══════════════════════════════════════════════
 // FIREBASE REALTIME DATABASE — Central Storage
@@ -1164,7 +1168,7 @@ function renderChecklist(){
   const el=document.getElementById('checklistDiv');
   if(!el||el.innerHTML.trim())return;
   const items=[
-    ['Questions uploaded to all 9 categories','Check Admin Panel → Question Bank tab'],
+    ['Questions uploaded to all 10 categories','Check Admin Panel → Question Bank tab'],
     ['Test passwords set for each category','Admin → Settings → Test Passwords'],
     ['Google Sheet URL configured','Admin → Google Sheet button (top nav)'],
     ['Test portal accessible from candidate computers','Open browser, type the server URL'],
@@ -1189,6 +1193,7 @@ async function renderDash(){
   const st=document.getElementById('st_tot');if(st)st.textContent=tot;
   const sm=document.getElementById('st_mcq');if(sm)sm.textContent=mcq;
   const sd=document.getElementById('st_des');if(sd)sd.textContent=des;
+  const sc=document.getElementById('st_cat');if(sc)sc.textContent=Object.keys(CATS).length;
   const g=document.getElementById('dashGrid');if(!g)return;g.innerHTML='';
   const h=hist();
   Object.entries(CATS).forEach(([k,c])=>{

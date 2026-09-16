@@ -290,6 +290,7 @@ function setupSheets() {
     pw_chemistry_hyd:       'isra123',
     pw_urdu_hyd:            'isra123',
     pw_physics_hyd:         'isra123',
+    pw_islamiat_lecturer_iu:'isra123',
   };
   if (!map['admin_secret']) {
     defaults['admin_secret'] = 'ISRA-' + Math.random().toString(36).substring(2,10).toUpperCase();

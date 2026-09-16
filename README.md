@@ -6,7 +6,7 @@ After deployment your portal will be at:
 
 https://YOUR-GITHUB-USERNAME.github.io/isra-portal/
 Features
-9 test categories (Sindhi, Maths, English, Chemistry, Urdu, Physics — Hyderabad; Maths, SST, Montessori — Mirpurkhas)
+10 test categories (Sindhi, Maths, English, Chemistry, Urdu, Physics — Hyderabad; Maths, SST, Montessori — Mirpurkhas; Islamiat Lecturer — IU)
 
 MCQ + Descriptive questions
 
